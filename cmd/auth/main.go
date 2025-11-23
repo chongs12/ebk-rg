@@ -1,21 +1,20 @@
 package main
 
 import (
-	"context"
-	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
+    "context"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
 
-	"github.com/enterprise-knowledge-base/ekb/internal/auth"
-	"github.com/enterprise-knowledge-base/ekb/internal/common/models"
-	"github.com/enterprise-knowledge-base/ekb/pkg/config"
-	"github.com/enterprise-knowledge-base/ekb/pkg/database"
-	"github.com/enterprise-knowledge-base/ekb/pkg/logger"
-	"github.com/enterprise-knowledge-base/ekb/pkg/middleware"
-	"github.com/gin-gonic/gin"
-	"github.com/swaggo/gin-swagger"
+    "github.com/chongs12/enterprise-knowledge-base/internal/auth"
+    "github.com/chongs12/enterprise-knowledge-base/internal/common/models"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/config"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/database"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/gin-gonic/gin"
 )
 
 // @title Enterprise Knowledge Base Auth Service API

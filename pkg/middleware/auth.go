@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/enterprise-knowledge-base/ekb/pkg/logger"
-	"github.com/enterprise-knowledge-base/ekb/pkg/utils"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )

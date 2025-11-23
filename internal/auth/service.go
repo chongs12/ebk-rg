@@ -1,17 +1,18 @@
 package auth
 
 import (
-	"context"
-	"fmt"
-	"time"
+    "context"
+    "fmt"
+    "time"
 
-	"github.com/enterprise-knowledge-base/ekb/internal/common/models"
-	"github.com/enterprise-knowledge-base/ekb/pkg/database"
-	"github.com/enterprise-knowledge-base/ekb/pkg/logger"
-	"github.com/enterprise-knowledge-base/ekb/pkg/utils"
-	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
+    "github.com/chongs12/enterprise-knowledge-base/internal/common/models"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/database"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/utils"
+    "github.com/sirupsen/logrus"
+    "github.com/google/uuid"
+    "golang.org/x/crypto/bcrypt"
+    "gorm.io/gorm"
 )
 
 type AuthService struct {
@@ -51,10 +52,10 @@ func NewAuthService(db *database.Database, jwtSecret string, accessExpiry, refre
 }
 
 func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*AuthResponse, error) {
-	logger.WithFields(logger.Fields{
-		"username": req.Username,
-		"email":    req.Email,
-	}).Info("Registering new user")
+    logger.WithFields(logrus.Fields{
+        "username": req.Username,
+        "email":    req.Email,
+    }).Info("Registering new user")
 
 	if !utils.IsValidEmail(req.Email) {
 		return nil, fmt.Errorf("invalid email format")
@@ -95,9 +96,9 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 
 	user.Password = ""
 
-	logger.WithFields(logger.Fields{
-		"user_id": user.ID,
-	}).Info("User registered successfully")
+    logger.WithFields(logrus.Fields{
+        "user_id": user.ID,
+    }).Info("User registered successfully")
 
 	return &AuthResponse{
 		User:         user,
@@ -108,9 +109,9 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 }
 
 func (s *AuthService) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, error) {
-	logger.WithFields(logger.Fields{
-		"username": req.Username,
-	}).Info("User login attempt")
+    logger.WithFields(logrus.Fields{
+        "username": req.Username,
+    }).Info("User login attempt")
 
 	var user models.User
 	err := s.db.WithContext(ctx).Where("username = ? OR email = ?", req.Username, req.Username).First(&user).Error
@@ -142,9 +143,9 @@ func (s *AuthService) Login(ctx context.Context, req *LoginRequest) (*AuthRespon
 
 	user.Password = ""
 
-	logger.WithFields(logger.Fields{
-		"user_id": user.ID,
-	}).Info("User logged in successfully")
+    logger.WithFields(logrus.Fields{
+        "user_id": user.ID,
+    }).Info("User logged in successfully")
 
 	return &AuthResponse{
 		User:         &user,
@@ -187,9 +188,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, req *RefreshTokenRequest
 
 	user.Password = ""
 
-	logger.WithFields(logger.Fields{
-		"user_id": user.ID,
-	}).Info("Token refreshed successfully")
+    logger.WithFields(logrus.Fields{
+        "user_id": user.ID,
+    }).Info("Token refreshed successfully")
 
 	return &AuthResponse{
 		User:         &user,
@@ -254,9 +255,9 @@ func (s *AuthService) DeactivateUser(ctx context.Context, userID string) error {
 		return fmt.Errorf("failed to deactivate user: %w", err)
 	}
 
-	logger.WithFields(logger.Fields{
-		"user_id": userID,
-	}).Info("User deactivated successfully")
+    logger.WithFields(logrus.Fields{
+        "user_id": userID,
+    }).Info("User deactivated successfully")
 
 	return nil
 }

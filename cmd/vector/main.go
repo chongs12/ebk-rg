@@ -11,12 +11,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/enterprise-knowledge-base/ekb/internal/common/models"
-	"github.com/enterprise-knowledge-base/ekb/internal/vector"
-	"github.com/enterprise-knowledge-base/ekb/pkg/config"
-	"github.com/enterprise-knowledge-base/ekb/pkg/database"
-	"github.com/enterprise-knowledge-base/ekb/pkg/logger"
-	"github.com/enterprise-knowledge-base/ekb/pkg/middleware"
+	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
+	"github.com/chongs12/enterprise-knowledge-base/internal/vector"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/config"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
 )
 
 func main() {

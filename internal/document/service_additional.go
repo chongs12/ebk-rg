@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/enterprise-knowledge-base/ekb/internal/common/models"
+	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

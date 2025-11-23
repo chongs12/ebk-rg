@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/enterprise-knowledge-base/ekb/pkg/logger"
-	"github.com/enterprise-knowledge-base/ekb/pkg/middleware"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
 )
 
 type Handler struct {

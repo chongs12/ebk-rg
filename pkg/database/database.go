@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/enterprise-knowledge-base/ekb/pkg/config"
-	"github.com/enterprise-knowledge-base/ekb/pkg/logger"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/config"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
