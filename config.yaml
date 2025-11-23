@@ -6,10 +6,10 @@ server:
 
 database:
   host: "localhost"
-  port: "3306"
+  port: "3308"
   username: "root"
-  password: ""
-  database: "ekb"
+  password: "qwe123"
+  database: "auth_db"
   max_open_conns: 25
   max_idle_conns: 5
   max_lifetime: "5m"

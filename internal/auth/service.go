@@ -1,23 +1,23 @@
 package auth
 
 import (
-    "context"
-    "fmt"
-    "time"
+	"context"
+	"fmt"
+	"time"
 
-    "github.com/chongs12/enterprise-knowledge-base/internal/common/models"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/database"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/utils"
-    "github.com/sirupsen/logrus"
-    "github.com/google/uuid"
-    "golang.org/x/crypto/bcrypt"
-    "gorm.io/gorm"
+	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/utils"
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type AuthService struct {
-	db          *database.Database
-	jwtManager  *utils.JWTManager
+	db         *database.Database
+	jwtManager *utils.JWTManager
 }
 
 type RegisterRequest struct {
@@ -52,10 +52,10 @@ func NewAuthService(db *database.Database, jwtSecret string, accessExpiry, refre
 }
 
 func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*AuthResponse, error) {
-    logger.WithFields(logrus.Fields{
-        "username": req.Username,
-        "email":    req.Email,
-    }).Info("Registering new user")
+	logger.WithFields(logrus.Fields{
+		"username": req.Username,
+		"email":    req.Email,
+	}).Info("Registering new user")
 
 	if !utils.IsValidEmail(req.Email) {
 		return nil, fmt.Errorf("invalid email format")
@@ -85,7 +85,7 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 		IsActive:  true,
 	}
 
-	if err := s.db.WithContext(ctx).Create(user).Error; err != nil {
+	if err = s.db.WithContext(ctx).Create(user).Error; err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -96,9 +96,9 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 
 	user.Password = ""
 
-    logger.WithFields(logrus.Fields{
-        "user_id": user.ID,
-    }).Info("User registered successfully")
+	logger.WithFields(logrus.Fields{
+		"user_id": user.ID,
+	}).Info("User registered successfully")
 
 	return &AuthResponse{
 		User:         user,
@@ -109,9 +109,9 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 }
 
 func (s *AuthService) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, error) {
-    logger.WithFields(logrus.Fields{
-        "username": req.Username,
-    }).Info("User login attempt")
+	logger.WithFields(logrus.Fields{
+		"username": req.Username,
+	}).Info("User login attempt")
 
 	var user models.User
 	err := s.db.WithContext(ctx).Where("username = ? OR email = ?", req.Username, req.Username).First(&user).Error
@@ -126,13 +126,13 @@ func (s *AuthService) Login(ctx context.Context, req *LoginRequest) (*AuthRespon
 		return nil, fmt.Errorf("user account is deactivated")
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+	if err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 		return nil, fmt.Errorf("invalid username or password")
 	}
 
 	now := time.Now()
 	user.LastLogin = &now
-	if err := s.db.WithContext(ctx).Save(&user).Error; err != nil {
+	if err = s.db.WithContext(ctx).Save(&user).Error; err != nil {
 		logger.WithError(err).Error("Failed to update last login")
 	}
 
@@ -143,9 +143,9 @@ func (s *AuthService) Login(ctx context.Context, req *LoginRequest) (*AuthRespon
 
 	user.Password = ""
 
-    logger.WithFields(logrus.Fields{
-        "user_id": user.ID,
-    }).Info("User logged in successfully")
+	logger.WithFields(logrus.Fields{
+		"user_id": user.ID,
+	}).Info("User logged in successfully")
 
 	return &AuthResponse{
 		User:         &user,
@@ -188,9 +188,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, req *RefreshTokenRequest
 
 	user.Password = ""
 
-    logger.WithFields(logrus.Fields{
-        "user_id": user.ID,
-    }).Info("Token refreshed successfully")
+	logger.WithFields(logrus.Fields{
+		"user_id": user.ID,
+	}).Info("Token refreshed successfully")
 
 	return &AuthResponse{
 		User:         &user,
@@ -255,9 +255,9 @@ func (s *AuthService) DeactivateUser(ctx context.Context, userID string) error {
 		return fmt.Errorf("failed to deactivate user: %w", err)
 	}
 
-    logger.WithFields(logrus.Fields{
-        "user_id": userID,
-    }).Info("User deactivated successfully")
+	logger.WithFields(logrus.Fields{
+		"user_id": userID,
+	}).Info("User deactivated successfully")
 
 	return nil
 }

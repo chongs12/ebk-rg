@@ -104,7 +104,7 @@ func (s *DocumentService) UploadDocument(ctx context.Context, req *UploadRequest
 	filename := fmt.Sprintf("%s%s", docID.String(), ext)
 	filePath := filepath.Join(s.uploadPath, filename)
 
-	if err := os.WriteFile(filePath, content, 0644); err != nil {
+	if err = os.WriteFile(filePath, content, 0644); err != nil {
 		return nil, fmt.Errorf("failed to save file: %w", err)
 	}
 
@@ -229,7 +229,7 @@ func (s *DocumentService) GetDocument(ctx context.Context, documentID string, us
 
 	if !doc.IsPublic && doc.OwnerID != userUUID {
 		var permission models.DocumentPermission
-		err = s.db.WithContext(ctx).Where("document_id = ? AND user_id = ? AND permission = ?", 
+		err = s.db.WithContext(ctx).Where("document_id = ? AND user_id = ? AND permission = ?",
 			docUUID, userUUID, models.PermissionRead.String()).First(&permission).Error
 		if err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -264,7 +264,7 @@ func (s *DocumentService) ListDocuments(ctx context.Context, userID string, page
 
 	if search, ok := filters["search"].(string); ok && search != "" {
 		searchPattern := "%" + search + "%"
-		query = query.Where("title LIKE ? OR description LIKE ? OR keywords LIKE ?", 
+		query = query.Where("title LIKE ? OR description LIKE ? OR keywords LIKE ?",
 			searchPattern, searchPattern, searchPattern)
 	}
 
