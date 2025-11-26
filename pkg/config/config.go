@@ -11,13 +11,15 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	JWT      JWTConfig
-	AI       AIConfig
-	Storage  StorageConfig
-	Tracing  TracingConfig
+    Server   ServerConfig
+    Database DatabaseConfig
+    Redis    RedisConfig
+    JWT      JWTConfig
+    AI       AIConfig
+    Ark      ArkConfig
+    Milvus   MilvusConfig
+    Storage  StorageConfig
+    Tracing  TracingConfig
 }
 
 type ServerConfig struct {
@@ -52,11 +54,30 @@ type JWTConfig struct {
 }
 
 type AIConfig struct {
-	OpenAIAPIKey string
-	EmbeddingModel string
-	ChatModel      string
-	MaxTokens      int
-	Temperature    float64
+    OpenAIAPIKey string
+    EmbeddingModel string
+    ChatModel      string
+    MaxTokens      int
+    Temperature    float64
+}
+
+type ArkConfig struct {
+    APIKey   string
+    AccessKey string
+    SecretKey string
+    Model    string
+    BaseURL  string
+    Region   string
+}
+
+type MilvusConfig struct {
+    Addr     string
+    Username string
+    Password string
+    Collection string
+    VectorField string
+    VectorDim   int
+    VectorType  string
 }
 
 type StorageConfig struct {
@@ -99,8 +120,8 @@ func Load() (*Config, error) {
 		fmt.Println("No .env file found, using environment variables or defaults")
 	}
 
-	cfg = &Config{
-		Server: ServerConfig{
+    cfg = &Config{
+        Server: ServerConfig{
 			Port:         getEnvOrDefault("SERVER_PORT", viper.GetString("server.port")),
 			Mode:         getEnvOrDefault("SERVER_MODE", viper.GetString("server.mode")),
 			ReadTimeout:  viper.GetDuration("server.read_timeout"),
@@ -127,18 +148,35 @@ func Load() (*Config, error) {
 			ExpireTime: viper.GetDuration("jwt.expire_time"),
 			Issuer:     getEnvOrDefault("JWT_ISSUER", viper.GetString("jwt.issuer")),
 		},
-		AI: AIConfig{
-			OpenAIAPIKey:   getEnvOrDefault("OPENAI_API_KEY", viper.GetString("ai.openai_api_key")),
-			EmbeddingModel: getEnvOrDefault("EMBEDDING_MODEL", viper.GetString("ai.embedding_model")),
-			ChatModel:      getEnvOrDefault("CHAT_MODEL", viper.GetString("ai.chat_model")),
-			MaxTokens:      viper.GetInt("ai.max_tokens"),
-			Temperature:    viper.GetFloat64("ai.temperature"),
-		},
-		Storage: StorageConfig{
-			UploadPath:  getEnvOrDefault("UPLOAD_PATH", viper.GetString("storage.upload_path")),
-			MaxFileSize: getEnvAsInt64OrDefault("MAX_FILE_SIZE", viper.GetInt64("storage.max_file_size")),
-			AllowedTypes: viper.GetStringSlice("storage.allowed_types"),
-		},
+        AI: AIConfig{
+            OpenAIAPIKey:   getEnvOrDefault("OPENAI_API_KEY", viper.GetString("ai.openai_api_key")),
+            EmbeddingModel: getEnvOrDefault("EMBEDDING_MODEL", viper.GetString("ai.embedding_model")),
+            ChatModel:      getEnvOrDefault("CHAT_MODEL", viper.GetString("ai.chat_model")),
+            MaxTokens:      viper.GetInt("ai.max_tokens"),
+            Temperature:    viper.GetFloat64("ai.temperature"),
+        },
+        Ark: ArkConfig{
+            APIKey:    getEnvOrDefault("ARK_API_KEY", viper.GetString("ark.api_key")),
+            AccessKey: getEnvOrDefault("ARK_ACCESS_KEY", viper.GetString("ark.access_key")),
+            SecretKey: getEnvOrDefault("ARK_SECRET_KEY", viper.GetString("ark.secret_key")),
+            Model:     getEnvOrDefault("ARK_MODEL", viper.GetString("ark.model")),
+            BaseURL:   getEnvOrDefault("ARK_BASE_URL", viper.GetString("ark.base_url")),
+            Region:    getEnvOrDefault("ARK_REGION", viper.GetString("ark.region")),
+        },
+        Milvus: MilvusConfig{
+            Addr:       getEnvOrDefault("MILVUS_ADDR", viper.GetString("milvus.addr")),
+            Username:   getEnvOrDefault("MILVUS_USERNAME", viper.GetString("milvus.username")),
+            Password:   getEnvOrDefault("MILVUS_PASSWORD", viper.GetString("milvus.password")),
+            Collection: getEnvOrDefault("MILVUS_COLLECTION", viper.GetString("milvus.collection")),
+            VectorField: getEnvOrDefault("MILVUS_VECTOR_FIELD", viper.GetString("milvus.vector_field")),
+            VectorDim:   getEnvAsIntOrDefault("MILVUS_VECTOR_DIM", viper.GetInt("milvus.vector_dim")),
+            VectorType:  getEnvOrDefault("MILVUS_VECTOR_TYPE", viper.GetString("milvus.vector_type")),
+        },
+        Storage: StorageConfig{
+            UploadPath:  getEnvOrDefault("UPLOAD_PATH", viper.GetString("storage.upload_path")),
+            MaxFileSize: getEnvAsInt64OrDefault("MAX_FILE_SIZE", viper.GetInt64("storage.max_file_size")),
+            AllowedTypes: viper.GetStringSlice("storage.allowed_types"),
+        },
 		Tracing: TracingConfig{
 			Enabled:        getEnvAsBoolOrDefault("TRACING_ENABLED", viper.GetBool("tracing.enabled")),
 			JaegerEndpoint: getEnvOrDefault("JAEGER_ENDPOINT", viper.GetString("tracing.jaeger_endpoint")),
@@ -173,10 +211,26 @@ func setDefaults() {
 	viper.SetDefault("jwt.expire_time", "24h")
 	viper.SetDefault("jwt.issuer", "enterprise-knowledge-base")
 
-	viper.SetDefault("ai.embedding_model", "text-embedding-ada-002")
-	viper.SetDefault("ai.chat_model", "gpt-3.5-turbo")
-	viper.SetDefault("ai.max_tokens", 1000)
-	viper.SetDefault("ai.temperature", 0.7)
+    viper.SetDefault("ai.embedding_model", "text-embedding-ada-002")
+    viper.SetDefault("ai.chat_model", "gpt-3.5-turbo")
+    viper.SetDefault("ai.max_tokens", 1000)
+    viper.SetDefault("ai.temperature", 0.7)
+
+
+    viper.SetDefault("ark.api_key", "")
+    viper.SetDefault("ark.access_key", "")
+    viper.SetDefault("ark.secret_key", "")
+    viper.SetDefault("ark.model", "")
+    viper.SetDefault("ark.base_url", "https://ark.cn-beijing.volces.com/api/v3")
+    viper.SetDefault("ark.region", "cn-beijing")
+
+    viper.SetDefault("milvus.addr", "localhost:19530")
+    viper.SetDefault("milvus.username", "")
+    viper.SetDefault("milvus.password", "")
+    viper.SetDefault("milvus.collection", "eino_collection")
+    viper.SetDefault("milvus.vector_field", "vector")
+    viper.SetDefault("milvus.vector_dim", 1024)
+    viper.SetDefault("milvus.vector_type", "float")
 
 	viper.SetDefault("storage.upload_path", "./uploads")
 	viper.SetDefault("storage.max_file_size", 10485760) // 10MB

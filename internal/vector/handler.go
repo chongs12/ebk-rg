@@ -3,9 +3,9 @@ package vector
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
@@ -34,19 +34,19 @@ type SearchSimilarRequest struct {
 // ChunkDocument chunks a document into text segments
 func (h *Handler) ChunkDocument(c *gin.Context) {
 	ctx := c.Request.Context()
-	
-	_, exists := c.Get("userID")
+
+	_, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
 	}
-	
+
 	var req ChunkDocumentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	// Chunk the document content
 	chunks, err := h.service.ChunkText(ctx, req.DocumentID, req.Content, req.ChunkSize)
 	if err != nil {
@@ -54,17 +54,31 @@ func (h *Handler) ChunkDocument(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to chunk document"})
 		return
 	}
-	
+
 	// Generate embeddings for chunks
 	if err := h.service.GenerateEmbeddings(ctx, chunks); err != nil {
 		logger.Error(ctx, "Failed to generate embeddings", "error", err.Error(), "document_id", req.DocumentID)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate embeddings"})
 		return
 	}
-	
+
+	// sanitize chunk output: remove nested document metadata
+	sanitized := make([]map[string]interface{}, 0, len(chunks))
+	for _, ch := range chunks {
+		sanitized = append(sanitized, map[string]interface{}{
+			"id":          ch.ID.String(),
+			"document_id": ch.DocumentID.String(),
+			"content":     ch.Content,
+			"chunk_index": ch.ChunkIndex,
+			"start_pos":   ch.StartPos,
+			"end_pos":     ch.EndPos,
+			"word_count":  ch.WordCount,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"document_id": req.DocumentID,
-		"chunks":      chunks,
+		"chunks":      sanitized,
 		"message":     "document chunked and embedded successfully",
 	})
 }
@@ -72,19 +86,19 @@ func (h *Handler) ChunkDocument(c *gin.Context) {
 // SearchSimilar searches for similar text chunks
 func (h *Handler) SearchSimilar(c *gin.Context) {
 	ctx := c.Request.Context()
-	
-	_, exists := c.Get("userID")
+
+	_, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
 	}
-	
+
 	var req SearchSimilarRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	// Search for similar chunks
 	chunks, err := h.service.SearchSimilarChunks(ctx, req.Query, req.Limit)
 	if err != nil {
@@ -92,30 +106,43 @@ func (h *Handler) SearchSimilar(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search similar chunks"})
 		return
 	}
-	
+	// sanitize: remove nested document metadata
+	sanitized := make([]map[string]interface{}, 0, len(chunks))
+	for _, ch := range chunks {
+		sanitized = append(sanitized, map[string]interface{}{
+			"id":          ch.ID.String(),
+			"document_id": ch.DocumentID.String(),
+			"content":     ch.Content,
+			"chunk_index": ch.ChunkIndex,
+			"start_pos":   ch.StartPos,
+			"end_pos":     ch.EndPos,
+			"word_count":  ch.WordCount,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"query":   req.Query,
-		"chunks":  chunks,
-		"count":   len(chunks),
+		"query":  req.Query,
+		"chunks": sanitized,
+		"count":  len(sanitized),
 	})
 }
 
 // GetDocumentChunks retrieves all chunks for a document
 func (h *Handler) GetDocumentChunks(c *gin.Context) {
 	ctx := c.Request.Context()
-	
-	_, exists := c.Get("userID")
+
+	_, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
 	}
-	
+
 	documentID := c.Param("documentId")
 	if documentID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "document ID is required"})
 		return
 	}
-	
+
 	// Get document chunks
 	chunks, err := h.service.GetDocumentChunks(ctx, documentID)
 	if err != nil {
@@ -123,7 +150,7 @@ func (h *Handler) GetDocumentChunks(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get document chunks"})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"document_id": documentID,
 		"chunks":      chunks,
@@ -134,26 +161,26 @@ func (h *Handler) GetDocumentChunks(c *gin.Context) {
 // DeleteDocumentChunks removes all chunks for a document
 func (h *Handler) DeleteDocumentChunks(c *gin.Context) {
 	ctx := c.Request.Context()
-	
-	_, exists := c.Get("userID")
+
+	_, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
 	}
-	
+
 	documentID := c.Param("documentId")
 	if documentID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "document ID is required"})
 		return
 	}
-	
+
 	// Delete document chunks
 	if err := h.service.DeleteDocumentChunks(ctx, documentID); err != nil {
 		logger.Error(ctx, "Failed to delete document chunks", "error", err.Error(), "document_id", documentID)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete document chunks"})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"document_id": documentID,
 		"message":     "document chunks deleted successfully",
@@ -164,11 +191,11 @@ func (h *Handler) DeleteDocumentChunks(c *gin.Context) {
 func (h *Handler) SetupRoutes(router *gin.Engine, authMiddleware *middleware.AuthMiddleware) {
 	vectors := router.Group("/api/v1/vectors")
 	vectors.Use(authMiddleware.RequireAuth())
-	
+
 	// Vector operations
 	vectors.POST("/chunk", h.ChunkDocument)
 	vectors.POST("/search", h.SearchSimilar)
-	
+
 	// Document-specific vector operations
 	vectors.GET("/documents/:documentId/chunks", h.GetDocumentChunks)
 	vectors.DELETE("/documents/:documentId/chunks", h.DeleteDocumentChunks)

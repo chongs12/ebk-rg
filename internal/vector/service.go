@@ -2,126 +2,179 @@ package vector
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
-type VectorService struct {
-	db *database.Database
+type Embedder interface {
+	Embed(ctx context.Context, inputs []string) ([][]float64, error)
+}
+type Store interface {
+	IndexChunks(ctx context.Context, chunks []*models.TextChunk) error
+	Retrieve(ctx context.Context, query string, limit int, scoreThreshold float32) ([]Hit, error)
+	DeleteByIDs(ctx context.Context, ids []string) error
+	InsertChunks(ctx context.Context, chunks []*models.TextChunk, embeddings [][]float64) error
 }
 
-func NewVectorService(db *database.Database) *VectorService {
-	return &VectorService{
-		db: db,
+type VectorService struct {
+	db    *database.Database
+	embed Embedder
+	store Store
+	redis *redis.Client
+}
+
+// splitChineseText 按中文语义切分文本为 chunks
+func splitChineseText(text string, maxChars int) []string {
+	if strings.TrimSpace(text) == "" {
+		return []string{}
 	}
+
+	// 按句子结束符分割：中文句号、感叹号、问号、分号、换行等
+	sentenceRegex := regexp.MustCompile(`[。！？；;!?。\n\r]+`)
+	sentences := sentenceRegex.Split(text, -1)
+
+	var chunks []string
+	var current strings.Builder
+	currentLen := 0
+
+	for _, sent := range sentences {
+		sent = strings.TrimSpace(sent)
+		if sent == "" {
+			continue
+		}
+
+		sentRunes := []rune(sent)
+		sentLen := len(sentRunes)
+
+		// 极端情况：单句超长，强制切分
+		if sentLen > maxChars {
+			// 按 maxChars 切分
+			for i := 0; i < sentLen; i += maxChars {
+				end := i + maxChars
+				if end > sentLen {
+					end = sentLen
+				}
+				chunks = append(chunks, string(sentRunes[i:end]))
+			}
+			continue
+		}
+
+		// 如果加入当前句会超出限制，且当前 chunk 非空 → 提交
+		if currentLen > 0 && currentLen+sentLen > maxChars {
+			chunks = append(chunks, current.String())
+			current.Reset()
+			currentLen = 0
+		}
+
+		// 追加当前句
+		if currentLen > 0 {
+			current.WriteString(" ") // 可选：加空格或直接拼接
+		}
+		current.WriteString(sent)
+		currentLen += sentLen
+	}
+
+	// 处理最后一块
+	if currentLen > 0 {
+		chunks = append(chunks, current.String())
+	}
+
+	return chunks
+}
+
+func NewVectorService(db *database.Database, embed Embedder, store Store, redis *redis.Client) *VectorService {
+	return &VectorService{db: db, embed: embed, store: store, redis: redis}
 }
 
 // TextChunk represents a chunk of text with metadata
-type TextChunk struct {
-	ID         string  `json:"id"`
-	DocumentID string  `json:"document_id"`
-	Content    string  `json:"content"`
-	ChunkIndex int     `json:"chunk_index"`
-	StartPos   int     `json:"start_pos"`
-	EndPos     int     `json:"end_pos"`
-	WordCount  int     `json:"word_count"`
-	Embedding  []float64 `json:"embedding,omitempty"`
-}
 
 // ChunkText breaks down document content into manageable chunks
-func (s *VectorService) ChunkText(ctx context.Context, documentID string, content string, chunkSize int) ([]*TextChunk, error) {
+func (s *VectorService) ChunkText(ctx context.Context, documentIDStr string, content string, chunkSize int) ([]*models.TextChunk, error) {
 	if chunkSize <= 0 {
-		chunkSize = 500 // Default chunk size (words)
+		chunkSize = 200 // Default: 200 characters (suitable for Chinese)
+	}
+	documentID, err := uuid.Parse(documentIDStr)
+	if err != nil {
+		return nil, err
 	}
 
-	words := strings.Fields(content)
-	var chunks []*TextChunk
-	
-	for i := 0; i < len(words); i += chunkSize {
-		end := i + chunkSize
-		if end > len(words) {
-			end = len(words)
+	// 使用中文语义分块
+	chunkTexts := splitChineseText(content, chunkSize)
+
+	var chunks []*models.TextChunk
+	for idx, ct := range chunkTexts {
+		if strings.TrimSpace(ct) == "" {
+			continue
 		}
-		
-		chunkContent := strings.Join(words[i:end], " ")
-		chunk := &TextChunk{
-			ID:         uuid.New().String(),
+		runes := []rune(ct)
+		wc := len(runes)
+
+		chunks = append(chunks, &models.TextChunk{
+			ID:         uuid.New(),
 			DocumentID: documentID,
-			Content:    chunkContent,
-			ChunkIndex: len(chunks),
-			StartPos:   i,
-			EndPos:     end,
-			WordCount:  end - i,
-		}
-		
-		chunks = append(chunks, chunk)
+			Content:    ct,
+			ChunkIndex: idx,
+			StartPos:   0,
+			EndPos:     wc,
+			WordCount:  wc,
+		})
 	}
-	
-	logger.Info(ctx, "Text chunking completed", "document_id", documentID, "chunks", len(chunks))
 	return chunks, nil
 }
 
 // GenerateEmbeddings creates vector embeddings for text chunks
-func (s *VectorService) GenerateEmbeddings(ctx context.Context, chunks []*TextChunk) error {
-	// For now, we'll use a simple TF-IDF based embedding
-	// In production, you'd integrate with an AI service like OpenAI, Hugging Face, etc.
-	
-	for _, chunk := range chunks {
-		// Generate a simple embedding (in production, replace with actual AI service)
-		embedding := s.generateSimpleEmbedding(chunk.Content)
-		chunk.Embedding = embedding
-		
-		// Store chunk in database
-		if err := s.storeChunk(ctx, chunk); err != nil {
-			logger.Error(ctx, "Failed to store chunk", "chunk_id", chunk.ID, "error", err.Error())
-			return fmt.Errorf("failed to store chunk: %w", err)
-		}
+// GenerateEmbeddings creates vector embeddings for text chunks and stores them
+func (s *VectorService) GenerateEmbeddings(ctx context.Context, chunks []*models.TextChunk) error {
+	if len(chunks) == 0 {
+		return nil
 	}
-	
-	logger.Info(ctx, "Embeddings generated and stored", "chunks", len(chunks))
-	return nil
+
+	// Step 1: Collect contents
+	contents := make([]string, len(chunks))
+	for i, c := range chunks {
+		contents[i] = c.Content
+	}
+
+	// Step 2: Generate embeddings
+	embeddings, err := s.embed.Embed(ctx, contents)
+	if err != nil {
+		return fmt.Errorf("failed to generate embeddings: %w", err)
+	}
+
+	// Step 3: Save to DB and Milvus
+	for i, chunk := range chunks {
+		chunk.Embedding, err = Float64SliceToBytes(embeddings[i])
+		if err != nil {
+			return fmt.Errorf("failed to convert embedding to bytes: %w", err)
+		}
+
+		// Save to PostgreSQL
+		if err := s.storeChunk(ctx, chunk); err != nil {
+			return err
+		}
+		fmt.Printf("save chunk, row = %d\n", i)
+	}
+	fmt.Printf("you have done it %d chunks\n", len(chunks))
+	fmt.Printf("s.store type: %T\n", s.store)
+
+	// Step 4: Insert into Milvus directly via MilvusStore
+	return s.store.(*MilvusStore).InsertChunks(ctx, chunks, embeddings)
 }
 
 // generateSimpleEmbedding creates a simple embedding for demonstration
 // In production, this would call an AI service
-func (s *VectorService) generateSimpleEmbedding(text string) []float64 {
-	// Simple word-based embedding for demonstration
-	// In production, integrate with OpenAI, Hugging Face, or similar service
-	words := strings.Fields(strings.ToLower(text))
-	embedding := make([]float64, 384) // 384-dimensional embedding
-	
-	// Simple hash-based embedding for demonstration
-	for i, word := range words {
-		if i >= 100 { // Limit to first 100 words
-			break
-		}
-		// Simple hash to create embedding values
-		for j := 0; j < len(embedding); j++ {
-			embedding[j] += float64(len(word)*i + j*int(word[0])) / 1000.0
-		}
-	}
-	
-	// Normalize embedding
-	magnitude := 0.0
-	for _, val := range embedding {
-		magnitude += val * val
-	}
-	magnitude = sqrt(magnitude)
-	
-	if magnitude > 0 {
-		for i := range embedding {
-			embedding[i] /= magnitude
-		}
-	}
-	
-	return embedding
-}
+/* removed */
 
 // sqrt is a simple square root function
 func sqrt(x float64) float64 {
@@ -136,98 +189,60 @@ func sqrt(x float64) float64 {
 }
 
 // storeChunk saves a text chunk to the database
-func (s *VectorService) storeChunk(ctx context.Context, chunk *TextChunk) error {
-	embeddingJSON, err := json.Marshal(chunk.Embedding)
-	if err != nil {
-		return fmt.Errorf("failed to marshal embedding: %w", err)
-	}
-	
-	docUUID, err := uuid.Parse(chunk.DocumentID)
-	if err != nil {
-		return fmt.Errorf("invalid document ID: %w", err)
-	}
-	
-	dbChunk := &models.TextChunk{
-		ID:          uuid.MustParse(chunk.ID),
-		DocumentID:  docUUID,
-		Content:     chunk.Content,
-		ChunkIndex:  chunk.ChunkIndex,
-		StartPos:    chunk.StartPos,
-		EndPos:      chunk.EndPos,
-		WordCount:   chunk.WordCount,
-		Embedding:   embeddingJSON,
-	}
-	
-	if err := s.db.Create(dbChunk).Error; err != nil {
+func (s *VectorService) storeChunk(ctx context.Context, chunk *models.TextChunk) error {
+	if err := s.db.Create(chunk).Error; err != nil {
 		return fmt.Errorf("failed to create chunk: %w", err)
 	}
-	
 	return nil
 }
 
 // SearchSimilarChunks finds chunks similar to a query
-func (s *VectorService) SearchSimilarChunks(ctx context.Context, query string, limit int) ([]*TextChunk, error) {
+func (s *VectorService) SearchSimilarChunks(ctx context.Context, query string, limit int) ([]*models.TextChunk, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	
-	// Generate embedding for query
-	queryEmbedding := s.generateSimpleEmbedding(query)
-	
-	// Get all chunks from database
-	var dbChunks []models.TextChunk
-	if err := s.db.Find(&dbChunks).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch chunks: %w", err)
-	}
-	
-	// Calculate similarities and find top matches
-	var similarities []struct {
-		chunk     *TextChunk
-		similarity float64
-	}
-	
-	for _, dbChunk := range dbChunks {
-		var embedding []float64
-		if err := json.Unmarshal(dbChunk.Embedding, &embedding); err != nil {
-			logger.Warn(ctx, "Failed to unmarshal embedding", "chunk_id", dbChunk.ID.String(), "error", err.Error())
-			continue
-		}
-		
-		similarity := cosineSimilarity(queryEmbedding, embedding)
-		
-		chunk := &TextChunk{
-			ID:         dbChunk.ID.String(),
-			DocumentID: dbChunk.DocumentID.String(),
-			Content:    dbChunk.Content,
-			ChunkIndex: dbChunk.ChunkIndex,
-			StartPos:   dbChunk.StartPos,
-			EndPos:     dbChunk.EndPos,
-			WordCount:  dbChunk.WordCount,
-			Embedding:  embedding,
-		}
-		
-		similarities = append(similarities, struct {
-			chunk     *TextChunk
-			similarity float64
-		}{chunk, similarity})
-	}
-	
-	// Sort by similarity (descending)
-	for i := 0; i < len(similarities); i++ {
-		for j := i + 1; j < len(similarities); j++ {
-			if similarities[j].similarity > similarities[i].similarity {
-				similarities[i], similarities[j] = similarities[j], similarities[i]
+	key := s.hash("srch", query, limit)
+	if s.redis != nil {
+		v, err := s.redis.Get(ctx, key).Result()
+		if err == nil && v != "" {
+			var cached []*models.TextChunk
+			if json.Unmarshal([]byte(v), &cached) == nil {
+				return cached, nil
 			}
 		}
 	}
-	
-	// Return top matches
-	var result []*TextChunk
-	for i := 0; i < len(similarities) && i < limit; i++ {
-		result = append(result, similarities[i].chunk)
+	// 语义检索
+	hits, err := s.store.Retrieve(ctx, query, limit, 0)
+	if err != nil {
+		return nil, err
 	}
-	
-	logger.Info(ctx, "Similarity search completed", "query", query, "matches", len(result))
+	if limit > 0 && len(hits) > limit {
+		hits = hits[:limit]
+	}
+	ids := make([]uuid.UUID, 0, len(hits))
+	for _, h := range hits {
+		id, err := uuid.Parse(h.ID)
+		if err == nil {
+			ids = append(ids, id)
+		}
+	}
+	var dbChunks []models.TextChunk
+	if len(ids) > 0 {
+		if err := s.db.Where("id IN ?", ids).Find(&dbChunks).Error; err != nil {
+			return nil, err
+		}
+	}
+	if limit > 0 && len(dbChunks) > limit {
+		dbChunks = dbChunks[:limit]
+	}
+	result := make([]*models.TextChunk, 0, len(dbChunks))
+	for i := range dbChunks {
+		result = append(result, &dbChunks[i])
+	}
+	if s.redis != nil {
+		b, _ := json.Marshal(result)
+		s.redis.Set(ctx, key, string(b), 60*time.Second)
+	}
 	return result, nil
 }
 
@@ -236,57 +251,41 @@ func cosineSimilarity(a, b []float64) float64 {
 	if len(a) != len(b) {
 		return 0
 	}
-	
+
 	dotProduct := 0.0
 	normA := 0.0
 	normB := 0.0
-	
+
 	for i := range a {
 		dotProduct += a[i] * b[i]
 		normA += a[i] * a[i]
 		normB += b[i] * b[i]
 	}
-	
+
 	if normA == 0 || normB == 0 {
 		return 0
 	}
-	
+
 	return dotProduct / (sqrt(normA) * sqrt(normB))
 }
 
 // GetDocumentChunks retrieves all chunks for a document
-func (s *VectorService) GetDocumentChunks(ctx context.Context, documentID string) ([]*TextChunk, error) {
+func (s *VectorService) GetDocumentChunks(ctx context.Context, documentID string) ([]*models.TextChunk, error) {
 	docUUID, err := uuid.Parse(documentID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid document ID: %w", err)
 	}
-	
+
 	var dbChunks []models.TextChunk
 	if err := s.db.Where("document_id = ?", docUUID).Find(&dbChunks).Error; err != nil {
 		return nil, fmt.Errorf("failed to fetch document chunks: %w", err)
 	}
-	
-	var chunks []*TextChunk
-	for _, dbChunk := range dbChunks {
-		var embedding []float64
-		if err := json.Unmarshal(dbChunk.Embedding, &embedding); err != nil {
-			logger.Warn(ctx, "Failed to unmarshal embedding", "chunk_id", dbChunk.ID.String(), "error", err.Error())
-			embedding = nil
-		}
-		
-		chunk := &TextChunk{
-			ID:         dbChunk.ID.String(),
-			DocumentID: dbChunk.DocumentID.String(),
-			Content:    dbChunk.Content,
-			ChunkIndex: dbChunk.ChunkIndex,
-			StartPos:   dbChunk.StartPos,
-			EndPos:     dbChunk.EndPos,
-			WordCount:  dbChunk.WordCount,
-			Embedding:  embedding,
-		}
-		chunks = append(chunks, chunk)
+
+	var chunks []*models.TextChunk
+	for i := range dbChunks {
+		chunks = append(chunks, &dbChunks[i])
 	}
-	
+
 	return chunks, nil
 }
 
@@ -296,11 +295,26 @@ func (s *VectorService) DeleteDocumentChunks(ctx context.Context, documentID str
 	if err != nil {
 		return fmt.Errorf("invalid document ID: %w", err)
 	}
-	
+	var ids []models.TextChunk
+	if err := s.db.Select("id").Where("document_id = ?", docUUID).Find(&ids).Error; err != nil {
+		return fmt.Errorf("failed to fetch ids: %w", err)
+	}
+	qids := make([]string, 0, len(ids))
+	for _, c := range ids {
+		qids = append(qids, c.ID.String())
+	}
+	if len(qids) > 0 {
+		_ = s.store.DeleteByIDs(ctx, qids)
+	}
 	if err := s.db.Where("document_id = ?", docUUID).Delete(&models.TextChunk{}).Error; err != nil {
 		return fmt.Errorf("failed to delete document chunks: %w", err)
 	}
-	
+
 	logger.Info(ctx, "Document chunks deleted", "document_id", documentID)
 	return nil
+}
+
+func (s *VectorService) hash(prefix string, text string, limit int) string {
+	h := sha256.Sum256([]byte(text))
+	return prefix + ":" + hex.EncodeToString(h[:8]) + ":" + fmt.Sprintf("%d", limit)
 }

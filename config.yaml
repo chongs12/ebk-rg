@@ -27,10 +27,9 @@ jwt:
 
 ai:
   openai_api_key: ""
-  embedding_model: "text-embedding-ada-002"
   chat_model: "gpt-3.5-turbo"
   max_tokens: 1000
-  temperature: 0.7
+  temperature: 0.7  
 
 storage:
   upload_path: "./uploads"
@@ -41,3 +40,28 @@ tracing:
   enabled: false
   jaeger_endpoint: "http://localhost:14268/api/traces"
   service_name: "enterprise-knowledge-base"
+
+
+dashscope:
+  api_key: "sk-133beb8b97b74afsdfs8e84c578c1d"
+  base_url: "https://dashscope.aliyuncs.com/api/v1"
+  model: "text-embedding-v2"
+  rate_per_sec: 10
+  burst: 20
+  max_retries: 6
+
+
+ark:
+  api_key: "e54466ea-48d7-41f6-a190-6fb440e132dd"
+  model: "doubao-embedding-large-text-240915"
+  base_url: "https://ark.cn-beijing.volces.com/api/v3"
+  region: "cn-beijing"
+
+milvus:
+  addr: "localhost:19530"
+  username: ""
+  password: ""
+  collection: "eino_collection"
+  vector_field: "vector"
+  vector_dim: 4096
+  vector_type: "float"

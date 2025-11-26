@@ -97,10 +97,10 @@ func (dp *DocumentPermission) TableName() string {
 type DocumentStatus string
 
 const (
-	DocumentStatusPending   DocumentStatus = "pending"
+	DocumentStatusPending    DocumentStatus = "pending"
 	DocumentStatusProcessing DocumentStatus = "processing"
-	DocumentStatusCompleted DocumentStatus = "completed"
-	DocumentStatusFailed    DocumentStatus = "failed"
+	DocumentStatusCompleted  DocumentStatus = "completed"
+	DocumentStatusFailed     DocumentStatus = "failed"
 )
 
 func (s DocumentStatus) String() string {
@@ -138,17 +138,17 @@ func (p DocumentPermissionType) IsValid() bool {
 
 // TextChunk represents a text chunk with vector embedding
 type TextChunk struct {
-	ID          uuid.UUID `gorm:"type:char(36);primary_key" json:"id"`
-	DocumentID  uuid.UUID `gorm:"type:char(36);not null;index" json:"document_id"`
-	Document    Document  `gorm:"foreignKey:DocumentID" json:"document"`
-	Content     string    `gorm:"type:text;not null" json:"content"`
-	ChunkIndex  int       `gorm:"not null" json:"chunk_index"`
-	StartPos    int       `gorm:"not null" json:"start_pos"`
-	EndPos      int       `gorm:"not null" json:"end_pos"`
-	WordCount   int       `gorm:"default:0" json:"word_count"`
-	Embedding   []byte    `gorm:"type:blob" json:"embedding"` // JSON-encoded embedding vector
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID         uuid.UUID `gorm:"type:char(36);primary_key" json:"id"`
+	DocumentID uuid.UUID `gorm:"type:char(36);not null;index" json:"document_id"`
+	Document   Document  `gorm:"foreignKey:DocumentID" json:"document"`
+	Content    string    `gorm:"type:text;not null" json:"content"`
+	ChunkIndex int       `gorm:"not null" json:"chunk_index"`
+	StartPos   int       `gorm:"not null" json:"start_pos"`
+	EndPos     int       `gorm:"not null" json:"end_pos"`
+	WordCount  int       `gorm:"default:0" json:"word_count"`
+	Embedding  []byte    `gorm:"type:blob" json:"embedding"` // JSON-encoded embedding vector
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 func (tc *TextChunk) BeforeCreate(tx *gorm.DB) error {

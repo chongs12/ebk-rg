@@ -1,20 +1,21 @@
 package main
 
 import (
-    "context"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-    "github.com/chongs12/enterprise-knowledge-base/internal/auth"
-    "github.com/chongs12/enterprise-knowledge-base/internal/common/models"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/config"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/database"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
-    "github.com/gin-gonic/gin"
+	"github.com/chongs12/enterprise-knowledge-base/internal/auth"
+	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/config"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+	"github.com/gin-gonic/gin"
 )
 
 // @title Enterprise Knowledge Base Auth Service API
@@ -92,12 +93,12 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:    ":8081",
+		Addr:    fmt.Sprintf(":%s", cfg.Server.Port),
 		Handler: router,
 	}
 
 	go func() {
-		logger.Infof("Starting auth service on port %s", ":8081")
+		logger.Infof("Starting auth service on port %s", cfg.Server.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatalf("Failed to start server: %v", err)
 		}

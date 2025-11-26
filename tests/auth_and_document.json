@@ -1,0 +1,256 @@
+{
+  "info": {
+    "name": "Enterprise Knowledge Base - Auth & Document APIs",
+    "_postman_id": "b1f2f2a0-7c84-4b9f-9e33-7b5e5cf9c001",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "auth_base_url", "value": "http://localhost:8081" },
+    { "key": "doc_base_url", "value": "http://localhost:8080" },
+    { "key": "bearer_token", "value": "" },
+    { "key": "refresh_token", "value": "" },
+    { "key": "document_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth - Register",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"alice\",\n  \"email\": \"alice@example.com\",\n  \"password\": \"Passw0rd!\",\n  \"first_name\": \"Alice\",\n  \"last_name\": \"W\"\n}"
+        },
+        "url": { "raw": "{{auth_base_url}}/api/v1/auth/register" }
+      }
+    },
+    {
+      "name": "Auth - Login",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"alice\",\n  \"password\": \"Passw0rd!\"\n}"
+        },
+        "url": { "raw": "{{auth_base_url}}/api/v1/auth/login" }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const res = pm.response.json();",
+              "if (res && res.data) {",
+              "  if (res.data.access_token) pm.collectionVariables.set('bearer_token', res.data.access_token);",
+              "  if (res.data.refresh_token) pm.collectionVariables.set('refresh_token', res.data.refresh_token);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth - Refresh Token",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+        },
+        "url": { "raw": "{{auth_base_url}}/api/v1/auth/refresh" }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const res = pm.response.json();",
+              "if (res && res.data && res.data.access_token) {",
+              "  pm.collectionVariables.set('bearer_token', res.data.access_token);",
+              "  pm.collectionVariables.set('refresh_token', res.data.refresh_token || pm.collectionVariables.get('refresh_token'));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users - Profile",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": { "raw": "{{auth_base_url}}/api/v1/users/profile" }
+      }
+    },
+    {
+      "name": "Users - Update Profile",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"first_name\": \"Alicia\",\n  \"last_name\": \"W\",\n  \"avatar\": \"https://example.com/a.png\"\n}"
+        },
+        "url": { "raw": "{{auth_base_url}}/api/v1/users/profile" }
+      }
+    },
+    {
+      "name": "Users - Change Password",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"current_password\": \"Passw0rd!\",\n  \"new_password\": \"NewPassw0rd!\"\n}"
+        },
+        "url": { "raw": "{{auth_base_url}}/api/v1/users/password" }
+      }
+    },
+    {
+      "name": "Users - Deactivate Account",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": { "raw": "{{auth_base_url}}/api/v1/users/account" }
+      }
+    },
+    {
+      "name": "Documents - Upload",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": "" },
+            { "key": "title", "type": "text", "value": "Sample Document" },
+            { "key": "description", "type": "text", "value": "Sample description" }
+          ]
+        },
+        "url": { "raw": "{{doc_base_url}}/api/v1/documents" }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const res = pm.response.json();",
+              "if (res && res.document && res.document.id) {",
+              "  pm.collectionVariables.set('document_id', res.document.id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Documents - List",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" }
+        ],
+        "url": { "raw": "{{doc_base_url}}/api/v1/documents?page=1&page_size=10" }
+      }
+    },
+    {
+      "name": "Documents - Search",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" }
+        ],
+        "url": { "raw": "{{doc_base_url}}/api/v1/documents/search?q=example&page=1&page_size=10" }
+      }
+    },
+    {
+      "name": "Documents - Get",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" }
+        ],
+        "url": { "raw": "{{doc_base_url}}/api/v1/documents/{{document_id}}" }
+      }
+    },
+    {
+      "name": "Documents - Update",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Updated Title\",\n  \"description\": \"Updated description\"\n}"
+        },
+        "url": { "raw": "{{doc_base_url}}/api/v1/documents/{{document_id}}" }
+      }
+    },
+    {
+      "name": "Documents - Delete",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" }
+        ],
+        "url": { "raw": "{{doc_base_url}}/api/v1/documents/{{document_id}}" }
+      }
+    },
+    {
+      "name": "Documents - Download",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" }
+        ],
+        "url": { "raw": "{{doc_base_url}}/api/v1/documents/{{document_id}}/download" }
+      }
+    },
+    {
+      "name": "Documents - Share",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_ids\": [\"<target-user-uuid>\"],\n  \"permission\": \"read\"\n}"
+        },
+        "url": { "raw": "{{doc_base_url}}/api/v1/documents/{{document_id}}/share" }
+      }
+    },
+    {
+      "name": "Documents - Permissions",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" }
+        ],
+        "url": { "raw": "{{doc_base_url}}/api/v1/documents/{{document_id}}/permissions" }
+      }
+    }
+  ]
+}
