@@ -1,0 +1,152 @@
+{
+  "info": {
+    "name": "RAG Query APIs",
+    "_postman_id": "e5a4c3f1-0f34-4b6a-9c2a-8a5f7b0d7aaa",
+    "description": "RAG Query tests: sync and stream endpoints with context memory and caching.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "query_base_url", "value": "http://localhost:8080" },
+    { "key": "bearer_token", "value": "" },
+    { "key": "rag_query_text", "value": "example" },
+    { "key": "rag_session_id", "value": "session-001" },
+    { "key": "rag_limit", "value": "5" }
+  ],
+  "item": [
+    {
+      "name": "RAG - Ask (Sync)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"{{rag_query_text}}\",\n  \"limit\": {{rag_limit}},\n  \"temperature\": 0.7,\n  \"max_tokens\": 1024,\n  \"session_id\": \"{{rag_session_id}}\"\n}"
+        },
+        "url": { "raw": "{{query_base_url}}/api/v1/rag/query" }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.expect(pm.collectionVariables.get('bearer_token')).to.be.a('string').and.not.empty;"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => pm.response.code === 200);",
+              "const json = pm.response.json();",
+              "pm.test('Has answer', () => json && typeof json.answer === 'string' && json.answer.length > 0);",
+              "pm.test('Sources array exists', () => Array.isArray(json.sources));",
+              "pm.test('Sources length <= limit', () => !json.sources || json.sources.length <= Number(pm.collectionVariables.get('rag_limit')));",
+              "pm.test('Usage object exists', () => json && typeof json.usage === 'object');",
+              "pm.collectionVariables.set('rag_last_answer', json.answer);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "RAG - Ask (Stream)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"{{rag_query_text}}\",\n  \"limit\": {{rag_limit}},\n  \"temperature\": 0.7,\n  \"max_tokens\": 1024,\n  \"session_id\": \"{{rag_session_id}}\"\n}"
+        },
+        "url": { "raw": "{{query_base_url}}/api/v1/rag/query/stream" }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.expect(pm.collectionVariables.get('bearer_token')).to.be.a('string').and.not.empty;"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => pm.response.code === 200);",
+              "pm.test('SSE body contains data chunks', () => pm.response.text().includes('data:'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "RAG - Ask (Sync, Memory Continuation)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"{{rag_query_text}} 后续问题\",\n  \"limit\": {{rag_limit}},\n  \"temperature\": 0.7,\n  \"max_tokens\": 1024,\n  \"session_id\": \"{{rag_session_id}}\"\n}"
+        },
+        "url": { "raw": "{{query_base_url}}/api/v1/rag/query" }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => pm.response.code === 200);",
+              "const json = pm.response.json();",
+              "pm.test('Has answer', () => json && typeof json.answer === 'string' && json.answer.length > 0);",
+              "pm.test('Sources array exists', () => Array.isArray(json.sources));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "RAG - Ask (Sync, Cache Hit)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{bearer_token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"{{rag_query_text}}\",\n  \"limit\": {{rag_limit}},\n  \"temperature\": 0.7,\n  \"max_tokens\": 1024,\n  \"session_id\": \"{{rag_session_id}}\"\n}"
+        },
+        "url": { "raw": "{{query_base_url}}/api/v1/rag/query" }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => pm.response.code === 200);",
+              "const json = pm.response.json();",
+              "pm.test('Has answer', () => json && typeof json.answer === 'string' && json.answer.length > 0);"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+

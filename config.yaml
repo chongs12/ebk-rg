@@ -16,7 +16,7 @@ database:
 
 redis:
   host: "localhost"
-  port: "6379"
+  port: "6383"
   password: ""
   db: 0
 
@@ -27,7 +27,7 @@ jwt:
 
 ai:
   openai_api_key: ""
-  chat_model: "gpt-3.5-turbo"
+  chat_model: "doubao-seed-1-6-251015"
   max_tokens: 1000
   temperature: 0.7  
 
@@ -43,7 +43,7 @@ tracing:
 
 
 dashscope:
-  api_key: "sk-133beb8b97b74afsdfs8e84c578c1d"
+  api_key: "sk-133beb8b97b74afsdfs8e84casd8c1d"
   base_url: "https://dashscope.aliyuncs.com/api/v1"
   model: "text-embedding-v2"
   rate_per_sec: 10
@@ -65,3 +65,9 @@ milvus:
   vector_field: "vector"
   vector_dim: 4096
   vector_type: "float"
+
+rag_query:
+  model: doubao-seed-1-6-251015
+  parameters:
+    temperature: 0.7
+    max_tokens: 1024
