@@ -58,7 +58,7 @@ func (h *Handler) Ask(c *gin.Context) {
     if req.Temperature <= 0 { req.Temperature = 0.7 }
 
     start := time.Now()
-    res, err := h.service.AskSync(ctx, uid, &RAGQueryRequest{Query: req.Query, Limit: req.Limit, Temperature: req.Temperature, MaxTokens: req.MaxTokens, SessionID: req.SessionID})
+    res, err := h.service.AskSync(ctx, uid, &RAGQueryRequest{Query: req.Query, Limit: req.Limit, Temperature: req.Temperature, MaxTokens: req.MaxTokens, SessionID: req.SessionID, AuthToken: c.GetHeader("Authorization")})
     if err != nil {
         logger.Error(ctx, "RAG Ask failed", "error", err.Error())
         c.JSON(http.StatusInternalServerError, gin.H{"error": "rag ask failed"})
@@ -105,7 +105,7 @@ func (h *Handler) AskStream(c *gin.Context) {
     c.Writer.Header().Set("Cache-Control", "no-cache")
     c.Writer.Header().Set("Connection", "keep-alive")
 
-    stream, errs := h.service.AskStream(ctx, uid, &RAGQueryRequest{Query: req.Query, Limit: req.Limit, Temperature: req.Temperature, MaxTokens: req.MaxTokens, SessionID: req.SessionID})
+    stream, errs := h.service.AskStream(ctx, uid, &RAGQueryRequest{Query: req.Query, Limit: req.Limit, Temperature: req.Temperature, MaxTokens: req.MaxTokens, SessionID: req.SessionID, AuthToken: c.GetHeader("Authorization")})
     c.Status(http.StatusOK)
 
     for {

@@ -71,3 +71,10 @@ rag_query:
   parameters:
     temperature: 0.7
     max_tokens: 1024
+
+gateway:
+  auth_base_url: "http://localhost:8081"
+  document_base_url: "http://localhost:8082"
+  vector_base_url: "http://localhost:8083"
+  query_base_url: "http://localhost:8084"
+  entry_base_url: "http://localhost:8080"

@@ -21,6 +21,7 @@ type Config struct {
 	Storage  StorageConfig
 	Tracing  TracingConfig
 	RagQuery RagQueryConfig
+	Gateway  GatewayConfig
 }
 
 type ServerConfig struct {
@@ -79,6 +80,14 @@ type RagQueryParameters struct {
 type RagQueryConfig struct {
 	Model      string
 	Parameters RagQueryParameters
+}
+
+type GatewayConfig struct {
+	AuthBaseURL     string
+	DocumentBaseURL string
+	VectorBaseURL   string
+	QueryBaseURL    string
+	EntryBaseURL    string
 }
 
 type MilvusConfig struct {
@@ -200,6 +209,13 @@ func Load() (*Config, error) {
 				MaxTokens:   viper.GetInt("rag_query.parameters.max_tokens"),
 			},
 		},
+		Gateway: GatewayConfig{
+			AuthBaseURL:     getEnvOrDefault("GW_AUTH_BASE_URL", viper.GetString("gateway.auth_base_url")),
+			DocumentBaseURL: getEnvOrDefault("GW_DOCUMENT_BASE_URL", viper.GetString("gateway.document_base_url")),
+			VectorBaseURL:   getEnvOrDefault("GW_VECTOR_BASE_URL", viper.GetString("gateway.vector_base_url")),
+			QueryBaseURL:    getEnvOrDefault("GW_QUERY_BASE_URL", viper.GetString("gateway.query_base_url")),
+			EntryBaseURL:    getEnvOrDefault("GW_ENTRY_BASE_URL", viper.GetString("gateway.entry_base_url")),
+		},
 	}
 
 	return cfg, nil
@@ -260,6 +276,12 @@ func setDefaults() {
 	viper.SetDefault("rag_query.model", "doubao-seed-1-6-251015")
 	viper.SetDefault("rag_query.parameters.temperature", 0.7)
 	viper.SetDefault("rag_query.parameters.max_tokens", 1024)
+
+	viper.SetDefault("gateway.auth_base_url", "http://localhost:8081")
+	viper.SetDefault("gateway.document_base_url", "http://localhost:8082")
+	viper.SetDefault("gateway.vector_base_url", "http://localhost:8083")
+	viper.SetDefault("gateway.query_base_url", "http://localhost:8084")
+	viper.SetDefault("gateway.entry_base_url", "http://localhost:8080")
 }
 
 func getEnvOrDefault(key, defaultValue string) string {

@@ -1,10 +1,13 @@
 package rag_query
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -13,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/chongs12/enterprise-knowledge-base/internal/vector"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
 )
 
@@ -24,6 +26,7 @@ type RAGQueryRequest struct {
 	Temperature float32
 	MaxTokens   int
 	SessionID   string
+	AuthToken   string
 }
 
 // RAGQueryResult 查询结果结构，包含答案与来源
@@ -35,15 +38,16 @@ type RAGQueryResult struct {
 
 // RAGQueryService 提供检索增强生成的核心能力
 type RAGQueryService struct {
-	db    *database.Database
-	redis *redis.Client
-	vs    *vector.VectorService
-	chat  *arkmodel.ChatModel
+	db     *database.Database
+	redis  *redis.Client
+	httpc  *http.Client
+	gwBase string
+	chat   *arkmodel.ChatModel
 }
 
 // NewRAGQueryService 创建服务实例
-func NewRAGQueryService(db *database.Database, redis *redis.Client, vs *vector.VectorService, chat *arkmodel.ChatModel) *RAGQueryService {
-	return &RAGQueryService{db: db, redis: redis, vs: vs, chat: chat}
+func NewRAGQueryService(db *database.Database, redis *redis.Client, httpc *http.Client, gatewayBase string, chat *arkmodel.ChatModel) *RAGQueryService {
+	return &RAGQueryService{db: db, redis: redis, httpc: httpc, gwBase: strings.TrimRight(gatewayBase, "/"), chat: chat}
 }
 
 // AskSync 执行同步查询并返回完整答案
@@ -60,8 +64,8 @@ func (s *RAGQueryService) AskSync(ctx context.Context, userID uuid.UUID, req *RA
 		}
 	}
 
-	// 语义检索：使用向量服务，严格遵守 limit
-	chunks, err := s.vs.SearchSimilarChunks(ctx, req.Query, req.Limit)
+	// 语义检索：通过网关调用向量服务，严格遵守 limit
+	chunks, err := s.searchChunksViaGateway(ctx, req.AuthToken, req.Query, req.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +83,8 @@ func (s *RAGQueryService) AskSync(ctx context.Context, userID uuid.UUID, req *RA
 		sb.WriteString("] ")
 		sb.WriteString(ch.Content)
 		sources = append(sources, map[string]any{
-			"id":              ch.ID.String(),
-			"document_id":     ch.DocumentID.String(),
+			"id":              ch.ID,
+			"document_id":     ch.DocumentID,
 			"chunk_index":     ch.ChunkIndex,
 			"content_excerpt": preview,
 		})
@@ -133,7 +137,7 @@ func (s *RAGQueryService) AskStream(ctx context.Context, userID uuid.UUID, req *
 		defer close(out)
 		defer close(errs)
 
-		chunks, err := s.vs.SearchSimilarChunks(ctx, req.Query, req.Limit)
+		chunks, err := s.searchChunksViaGateway(ctx, req.AuthToken, req.Query, req.Limit)
 		if err != nil {
 			errs <- err
 			return
@@ -234,4 +238,46 @@ func (s *RAGQueryService) saveHistory(ctx context.Context, userID uuid.UUID, ses
 func (s *RAGQueryService) cacheKey(prefix string, text string, limit int) string {
 	h := sha256.Sum256([]byte(text))
 	return prefix + ":" + hex.EncodeToString(h[:8]) + ":" + fmt.Sprintf("%d", limit)
+}
+
+// searchChunksViaGateway 通过网关调用向量服务检索分块
+func (s *RAGQueryService) searchChunksViaGateway(ctx context.Context, authToken string, query string, limit int) ([]gatewayChunk, error) {
+	payload := map[string]any{"query": query, "limit": limit}
+	b, _ := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.gwBase+"/api/v1/vectors/search", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(authToken) != "" {
+		req.Header.Set("Authorization", authToken)
+	}
+	resp, err := s.httpc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("gateway search failed: status=%d", resp.StatusCode)
+	}
+	var out struct {
+		Query  string         `json:"query"`
+		Chunks []gatewayChunk `json:"chunks"`
+		Count  int            `json:"count"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out.Chunks, nil
+}
+
+// gatewayChunk 与向量服务的扁平化返回保持一致
+type gatewayChunk struct {
+	ID         string `json:"id"`
+	DocumentID string `json:"document_id"`
+	Content    string `json:"content"`
+	ChunkIndex int    `json:"chunk_index"`
+	StartPos   int    `json:"start_pos"`
+	EndPos     int    `json:"end_pos"`
+	WordCount  int    `json:"word_count"`
 }
