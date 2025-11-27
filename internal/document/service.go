@@ -1,15 +1,19 @@
 package document
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
@@ -24,6 +28,7 @@ type DocumentService struct {
 	uploadPath   string
 	maxFileSize  int64
 	allowedTypes []string
+	gatewayBase  string
 }
 
 type UploadRequest struct {
@@ -35,6 +40,7 @@ type UploadRequest struct {
 	Category    string
 	Tags        []string
 	UserID      string
+	AuthToken   string
 }
 
 type DocumentResponse struct {
@@ -49,7 +55,16 @@ type DocumentListResponse struct {
 	PageSize  int                `json:"page_size"`
 }
 
-func NewDocumentService(db *database.Database, uploadPath string, maxFileSize int64, allowedTypes []string) *DocumentService {
+// NewDocumentService 创建文档服务
+// 参数：
+// - db：数据库连接
+// - uploadPath：上传目录
+// - maxFileSize：文件大小上限
+// - allowedTypes：允许的扩展名列表
+// - gatewayBase：网关基础地址，用于触发向量化
+// 返回：
+// - *DocumentService 实例
+func NewDocumentService(db *database.Database, uploadPath string, maxFileSize int64, allowedTypes []string, gatewayBase string) *DocumentService {
 	if err := os.MkdirAll(uploadPath, 0755); err != nil {
 		logger.Fatalf("Failed to create upload directory: %v", err)
 	}
@@ -59,6 +74,7 @@ func NewDocumentService(db *database.Database, uploadPath string, maxFileSize in
 		uploadPath:   uploadPath,
 		maxFileSize:  maxFileSize,
 		allowedTypes: allowedTypes,
+		gatewayBase:  strings.TrimRight(gatewayBase, "/"),
 	}
 }
 
@@ -151,6 +167,13 @@ func (s *DocumentService) UploadDocument(ctx context.Context, req *UploadRequest
 		"status":      doc.Status,
 	}).Info("Document uploaded successfully")
 
+	// 触发异步向量化流水线（通过 Gateway 调用 Vector 服务）
+	go func(token string) {
+		if err := s.TriggerVectorization(context.Background(), doc, token); err != nil {
+			logger.WithError(err).Warn("Vectorization trigger failed")
+		}
+	}(req.AuthToken)
+
 	return &DocumentResponse{
 		Document: doc,
 		Message:  "Document uploaded successfully",
@@ -169,29 +192,13 @@ func (s *DocumentService) extractTextContent(filePath string, fileType string) (
 }
 
 func (s *DocumentService) extractPDFContent(filePath string) (string, int, int, string, error) {
-	// Open PDF file
-	file, err := os.Open(filePath)
-	if err != nil {
-		return "", 0, 0, "", fmt.Errorf("failed to open PDF file: %w", err)
-	}
-	defer file.Close()
-
-	// Extract text from PDF using simple approach
-	// For now, we'll read the file as text and extract what we can
-	// This is a basic implementation - for production, use a proper PDF library
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", 0, 0, "", fmt.Errorf("failed to read PDF file: %w", err)
 	}
-
-	// Simple page counting - default to 1 for now
-	totalPages := 1
-
-	textContent := utils.NormalizeText(string(content))
-	wordCount := len(strings.Fields(textContent))
-	language := "en"
-
-	return textContent, wordCount, totalPages, language, nil
+	text := utils.NormalizeText(string(content))
+	wordCount := len(strings.Fields(text))
+	return text, wordCount, 1, "en", nil
 }
 
 func (s *DocumentService) extractPlainTextContent(filePath string) (string, int, int, string, error) {
@@ -434,5 +441,43 @@ func (s *DocumentService) ShareDocument(ctx context.Context, documentID string, 
 		"permission":  permission,
 	}).Info("Document shared successfully")
 
+	return nil
+}
+
+// TriggerVectorization 触发向量化（异步）
+// 用途：
+// - 调用 Gateway 的 `/api/v1/vectors/chunk` 接口，将文档内容分块并生成向量
+// 参数：
+// - ctx：上下文
+// - doc：文档对象（需包含 Content）
+// - authToken：鉴权令牌（可选，若为空表示由网关放行内部调用策略）
+// 返回：
+// - error：失败时返回错误
+func (s *DocumentService) TriggerVectorization(ctx context.Context, doc *models.Document, authToken string) error {
+	if s.gatewayBase == "" || doc == nil {
+		return nil
+	}
+	payload := map[string]interface{}{
+		"document_id": doc.ID.String(),
+		"content":     doc.Content,
+		"chunk_size":  200,
+	}
+	b, _ := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.gatewayBase+"/api/v1/vectors/chunk", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(authToken) != "" {
+		req.Header.Set("Authorization", authToken)
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("vectorization upstream status=%d", resp.StatusCode)
+	}
 	return nil
 }

@@ -22,7 +22,7 @@ func NewHandler(service *DocumentService) *Handler {
 
 // UploadDocument handles document upload
 func (h *Handler) UploadDocument(c *gin.Context) {
-    userID, exists := c.Get("user_id")
+	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
@@ -57,6 +57,7 @@ func (h *Handler) UploadDocument(c *gin.Context) {
 		Title:       title,
 		Description: description,
 		UserID:      userID.(string),
+		AuthToken:   c.GetHeader("Authorization"),
 	}
 	doc, err := h.service.UploadDocument(ctx, uploadReq)
 	if err != nil {
@@ -66,14 +67,14 @@ func (h *Handler) UploadDocument(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "document uploaded successfully",
+		"message":  "document uploaded successfully",
 		"document": doc,
 	})
 }
 
 // GetDocument retrieves a document by ID
 func (h *Handler) GetDocument(c *gin.Context) {
-    userID, exists := c.Get("user_id")
+	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
@@ -102,7 +103,7 @@ func (h *Handler) GetDocument(c *gin.Context) {
 
 // ListDocuments retrieves documents with pagination
 func (h *Handler) ListDocuments(c *gin.Context) {
-    userID, exists := c.Get("user_id")
+	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
@@ -111,7 +112,7 @@ func (h *Handler) ListDocuments(c *gin.Context) {
 	// Parse query parameters
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
-	
+
 	if page < 1 {
 		page = 1
 	}
@@ -138,7 +139,7 @@ func (h *Handler) ListDocuments(c *gin.Context) {
 
 // UpdateDocument updates document metadata
 func (h *Handler) UpdateDocument(c *gin.Context) {
-    userID, exists := c.Get("user_id")
+	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
@@ -184,7 +185,7 @@ func (h *Handler) UpdateDocument(c *gin.Context) {
 
 // DeleteDocument deletes a document
 func (h *Handler) DeleteDocument(c *gin.Context) {
-    userID, exists := c.Get("user_id")
+	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
@@ -212,7 +213,7 @@ func (h *Handler) DeleteDocument(c *gin.Context) {
 
 // ShareDocument shares a document with other users
 func (h *Handler) ShareDocument(c *gin.Context) {
-    userID, exists := c.Get("user_id")
+	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
@@ -259,7 +260,7 @@ func (h *Handler) ShareDocument(c *gin.Context) {
 
 // GetDocumentPermissions retrieves document permissions
 func (h *Handler) GetDocumentPermissions(c *gin.Context) {
-    userID, exists := c.Get("user_id")
+	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
@@ -337,7 +338,7 @@ func (h *Handler) SearchDocuments(c *gin.Context) {
 	// Parse query parameters
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
-	
+
 	if page < 1 {
 		page = 1
 	}
@@ -368,7 +369,9 @@ func (h *Handler) SetupRoutes(router *gin.Engine, authMiddleware *middleware.Aut
 	documents.Use(authMiddleware.RequireAuth())
 	{
 		documents.POST("", h.UploadDocument)
+		documents.POST("/", h.UploadDocument)
 		documents.GET("", h.ListDocuments)
+		documents.GET("/", h.ListDocuments)
 		documents.GET("/search", h.SearchDocuments)
 		documents.GET("/:id", h.GetDocument)
 		documents.PUT("/:id", h.UpdateDocument)

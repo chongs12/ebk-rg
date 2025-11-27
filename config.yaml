@@ -43,7 +43,7 @@ tracing:
 
 
 dashscope:
-  api_key: "sk-133beb8b97b74afsdfs8e84casd8c1d"
+  api_key: ""
   base_url: "https://dashscope.aliyuncs.com/api/v1"
   model: "text-embedding-v2"
   rate_per_sec: 10
@@ -52,7 +52,7 @@ dashscope:
 
 
 ark:
-  api_key: "e54466ea-48d7-41f6-a190-6fb440e132dd"
+  api_key: ""
   model: "doubao-embedding-large-text-240915"
   base_url: "https://ark.cn-beijing.volces.com/api/v3"
   region: "cn-beijing"

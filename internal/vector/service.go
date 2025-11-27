@@ -35,12 +35,20 @@ type VectorService struct {
 }
 
 // splitChineseText 按中文语义切分文本为 chunks
+// 用途：
+// - 针对包含中文的文本，按照句子结束符进行语义分块，尽可能保持句子完整性
+// 参数：
+// - text：原始文本
+// - maxChars：单块最大字符数（按 rune 计数），超过时会进行强制切分
+// 返回：
+// - []string：分块后的文本切片
 func splitChineseText(text string, maxChars int) []string {
 	if strings.TrimSpace(text) == "" {
 		return []string{}
 	}
 
 	// 按句子结束符分割：中文句号、感叹号、问号、分号、换行等
+	// 匹配常见中文/英文句子结束符号以及换行符
 	sentenceRegex := regexp.MustCompile(`[。！？；;!?。\n\r]+`)
 	sentences := sentenceRegex.Split(text, -1)
 
@@ -57,7 +65,7 @@ func splitChineseText(text string, maxChars int) []string {
 		sentRunes := []rune(sent)
 		sentLen := len(sentRunes)
 
-		// 极端情况：单句超长，强制切分
+		// 极端情况：单句超长，强制切分（按固定长度截断，避免超出向量维度限制）
 		if sentLen > maxChars {
 			// 按 maxChars 切分
 			for i := 0; i < sentLen; i += maxChars {
@@ -77,7 +85,7 @@ func splitChineseText(text string, maxChars int) []string {
 			currentLen = 0
 		}
 
-		// 追加当前句
+		// 追加当前句（在块内使用空格衔接，避免过度粘连）
 		if currentLen > 0 {
 			current.WriteString(" ") // 可选：加空格或直接拼接
 		}
@@ -97,9 +105,20 @@ func NewVectorService(db *database.Database, embed Embedder, store Store, redis 
 	return &VectorService{db: db, embed: embed, store: store, redis: redis}
 }
 
-// TextChunk represents a chunk of text with metadata
+// TextChunk 相关逻辑说明：
+// - 业务侧以 `models.TextChunk` 作为分块实体，记录文本片段与位置等信息
+// - 向量存储在 Milvus 中，数据库仅存文本与必要元数据（embedding 以字节保留可选）
 
-// ChunkText breaks down document content into manageable chunks
+// ChunkText 将文档内容拆分为易管理的文本块
+// 用途：
+// - 根据指定的 chunkSize 对文本进行中文语义分块
+// 参数：
+// - documentIDStr：文档 ID（字符串）
+// - content：原始文本内容
+// - chunkSize：每块最大字符数，<=0 时使用默认 200
+// 返回：
+// - []*models.TextChunk：生成的分块列表（包含索引与统计信息）
+// - error：失败时返回错误
 func (s *VectorService) ChunkText(ctx context.Context, documentIDStr string, content string, chunkSize int) ([]*models.TextChunk, error) {
 	if chunkSize <= 0 {
 		chunkSize = 200 // Default: 200 characters (suitable for Chinese)
@@ -109,7 +128,7 @@ func (s *VectorService) ChunkText(ctx context.Context, documentIDStr string, con
 		return nil, err
 	}
 
-	// 使用中文语义分块
+	// 使用中文语义分块（按句子与最大长度进行整合）
 	chunkTexts := splitChineseText(content, chunkSize)
 
 	var chunks []*models.TextChunk
@@ -118,7 +137,7 @@ func (s *VectorService) ChunkText(ctx context.Context, documentIDStr string, con
 			continue
 		}
 		runes := []rune(ct)
-		wc := len(runes)
+		wc := len(runes) // 此处 wordCount 以字符计数，适配中英文统一处理
 
 		chunks = append(chunks, &models.TextChunk{
 			ID:         uuid.New(),
@@ -133,8 +152,12 @@ func (s *VectorService) ChunkText(ctx context.Context, documentIDStr string, con
 	return chunks, nil
 }
 
-// GenerateEmbeddings creates vector embeddings for text chunks
-// GenerateEmbeddings creates vector embeddings for text chunks and stores them
+// GenerateEmbeddings 为文本分块生成向量并入库
+// 用途：
+// - 批量调用 Embedder 生成向量
+// - 将分块与向量写入关系库与 Milvus
+// 返回：
+// - error：失败时返回错误
 func (s *VectorService) GenerateEmbeddings(ctx context.Context, chunks []*models.TextChunk) error {
 	if len(chunks) == 0 {
 		return nil
@@ -146,7 +169,7 @@ func (s *VectorService) GenerateEmbeddings(ctx context.Context, chunks []*models
 		contents[i] = c.Content
 	}
 
-	// Step 2: Generate embeddings
+	// Step 2: 生成向量（批量）
 	embeddings, err := s.embed.Embed(ctx, contents)
 	if err != nil {
 		return fmt.Errorf("failed to generate embeddings: %w", err)
@@ -159,7 +182,7 @@ func (s *VectorService) GenerateEmbeddings(ctx context.Context, chunks []*models
 			return fmt.Errorf("failed to convert embedding to bytes: %w", err)
 		}
 
-		// Save to PostgreSQL
+		// 保存至关系库（记录分块与向量字节，可选）
 		if err := s.storeChunk(ctx, chunk); err != nil {
 			return err
 		}
@@ -168,7 +191,7 @@ func (s *VectorService) GenerateEmbeddings(ctx context.Context, chunks []*models
 	fmt.Printf("you have done it %d chunks\n", len(chunks))
 	fmt.Printf("s.store type: %T\n", s.store)
 
-	// Step 4: Insert into Milvus directly via MilvusStore
+	// Step 4: 通过 MilvusStore 直接插入向量（高效批量列插入）
 	return s.store.(*MilvusStore).InsertChunks(ctx, chunks, embeddings)
 }
 
@@ -176,7 +199,7 @@ func (s *VectorService) GenerateEmbeddings(ctx context.Context, chunks []*models
 // In production, this would call an AI service
 /* removed */
 
-// sqrt is a simple square root function
+// sqrt 简单的平方根函数（牛顿法）
 func sqrt(x float64) float64 {
 	if x == 0 {
 		return 0
@@ -188,7 +211,7 @@ func sqrt(x float64) float64 {
 	return z
 }
 
-// storeChunk saves a text chunk to the database
+// storeChunk 将分块记录保存到数据库
 func (s *VectorService) storeChunk(ctx context.Context, chunk *models.TextChunk) error {
 	if err := s.db.Create(chunk).Error; err != nil {
 		return fmt.Errorf("failed to create chunk: %w", err)
@@ -196,7 +219,10 @@ func (s *VectorService) storeChunk(ctx context.Context, chunk *models.TextChunk)
 	return nil
 }
 
-// SearchSimilarChunks finds chunks similar to a query
+// SearchSimilarChunks 执行语义检索，返回相似分块
+// 用途：
+// - 通过向量检索命中分块 ID，再回查数据库组装完整分块对象
+// - 支持 Redis 缓存命中以降低后端压力
 func (s *VectorService) SearchSimilarChunks(ctx context.Context, query string, limit int) ([]*models.TextChunk, error) {
 	if limit <= 0 {
 		limit = 10
@@ -211,7 +237,7 @@ func (s *VectorService) SearchSimilarChunks(ctx context.Context, query string, l
 			}
 		}
 	}
-	// 语义检索
+	// 语义检索（由 store 决定底层召回实现）
 	hits, err := s.store.Retrieve(ctx, query, limit, 0)
 	if err != nil {
 		return nil, err
@@ -246,7 +272,7 @@ func (s *VectorService) SearchSimilarChunks(ctx context.Context, query string, l
 	return result, nil
 }
 
-// cosineSimilarity calculates cosine similarity between two vectors
+// cosineSimilarity 计算两个向量的余弦相似度
 func cosineSimilarity(a, b []float64) float64 {
 	if len(a) != len(b) {
 		return 0
@@ -269,7 +295,7 @@ func cosineSimilarity(a, b []float64) float64 {
 	return dotProduct / (sqrt(normA) * sqrt(normB))
 }
 
-// GetDocumentChunks retrieves all chunks for a document
+// GetDocumentChunks 获取指定文档的全部分块
 func (s *VectorService) GetDocumentChunks(ctx context.Context, documentID string) ([]*models.TextChunk, error) {
 	docUUID, err := uuid.Parse(documentID)
 	if err != nil {
@@ -289,7 +315,7 @@ func (s *VectorService) GetDocumentChunks(ctx context.Context, documentID string
 	return chunks, nil
 }
 
-// DeleteDocumentChunks removes all chunks for a document
+// DeleteDocumentChunks 删除指定文档的全部分块（含 Milvus 与数据库）
 func (s *VectorService) DeleteDocumentChunks(ctx context.Context, documentID string) error {
 	docUUID, err := uuid.Parse(documentID)
 	if err != nil {
@@ -314,6 +340,7 @@ func (s *VectorService) DeleteDocumentChunks(ctx context.Context, documentID str
 	return nil
 }
 
+// hash 生成缓存键（前缀+文本短哈希+limit）
 func (s *VectorService) hash(prefix string, text string, limit int) string {
 	h := sha256.Sum256([]byte(text))
 	return prefix + ":" + hex.EncodeToString(h[:8]) + ":" + fmt.Sprintf("%d", limit)

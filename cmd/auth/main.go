@@ -39,6 +39,9 @@ import (
 // @description Type "Bearer" followed by a space and JWT token.
 
 func main() {
+	// 文件功能：认证服务入口，初始化配置、数据库与路由；支持端口环境变量覆盖
+	// 作者：system
+	// 创建日期：2025-11-26；修改日期：2025-11-26
 	cfg := config.Get()
 	logger.Init()
 
@@ -92,13 +95,19 @@ func main() {
 		}
 	}
 
+	// 支持独立端口环境变量覆盖（EKB_AUTH_PORT）；为空时回退到通用 server.port
+	port := os.Getenv("EKB_AUTH_PORT")
+	if port == "" {
+		port = cfg.Server.Port
+	}
+
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%s", cfg.Server.Port),
+		Addr:    fmt.Sprintf(":%s", port),
 		Handler: router,
 	}
 
 	go func() {
-		logger.Infof("Starting auth service on port %s", cfg.Server.Port)
+		logger.Infof("Starting auth service on port %s", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatalf("Failed to start server: %v", err)
 		}

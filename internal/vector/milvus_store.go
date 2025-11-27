@@ -16,6 +16,14 @@ import (
 	"github.com/milvus-io/milvus-sdk-go/v2/entity"
 )
 
+// MilvusStore 封装基于 Milvus 的索引与检索能力
+// 功能说明：
+// - 使用 Eino Indexer 进行文档+向量的存储
+// - 使用 Eino Retriever 进行 TopK 语义检索
+// - 对外暴露统一的 IndexChunks/Retrieve/DeleteByIDs/InsertChunks 等方法
+// 关键点：
+// - 自定义向量与文档转换器，确保向量类型兼容（float64→float32）与元数据回传
+// - 明确 OutputFields，保证检索结果包含必要字段（id/content/metadata）
 type MilvusStore struct {
 	client      milvus.Client
 	indexer     *milindex.Indexer
@@ -26,6 +34,8 @@ type MilvusStore struct {
 	vectorType  string
 }
 
+// milvusSearchParam 是对 SDK 搜索参数的轻量封装
+// 作用：在不同版本 SDK 上以统一方式传递半径/range 等检索参数
 type milvusSearchParam struct {
 	params map[string]interface{}
 }
@@ -54,7 +64,15 @@ func NewMilvusSearchParam(params map[string]interface{}) entity.SearchParam {
 	return &milvusSearchParam{params: p}
 }
 
-// 初始化 Milvus 存储（包含索引与检索器）
+// NewMilvusStore 初始化 Milvus 存储（包含索引与检索器）
+// 用途：
+// - 构造 Indexer/Retriever，准备好集合字段与向量转换器
+// 参数：
+// - cli：Milvus 客户端
+// - collection/vectorField/vectorDim/vectorType：集合配置
+// - arkAPIKey/arkModel/baseURL/region：用于 Embedding 诊断/一致性
+// 返回：
+// - *MilvusStore：成功时返回实例；error：失败时返回错误
 func NewMilvusStore(ctx context.Context, cli milvus.Client, collection string, arkAPIKey, arkModel string, arkBaseURL, arkRegion string, vectorField string, vectorDim int, vectorType string) (*MilvusStore, error) {
 	emb, err := arkext.NewEmbedder(ctx, &arkext.EmbeddingConfig{APIKey: arkAPIKey, Model: arkModel, BaseURL: arkBaseURL, Region: arkRegion})
 	if err != nil {
@@ -70,7 +88,7 @@ func NewMilvusStore(ctx context.Context, cli milvus.Client, collection string, a
 		indexerMetric = "COSINE" // 或 "L2", "IP"，根据你的 embedding 模型选择
 	}
 
-	// ✅ 新增：自定义 DocumentConverter，避免默认 converter 将 float64 向量转成 []byte
+	// 自定义 DocumentConverter：避免默认 converter 将 float64 向量转为 []byte
 	customConverter := func(ctx context.Context, docs []*schema.Document, vectors [][]float64) ([]interface{}, error) {
 		rows := make([]interface{}, len(docs))
 		for i, doc := range docs {
@@ -79,7 +97,7 @@ func NewMilvusStore(ctx context.Context, cli milvus.Client, collection string, a
 				return nil, fmt.Errorf("marshal metadata: %w", err)
 			}
 
-			// 将 []float64 转为 Milvus 要求的 []float32
+			// 将 []float64 转为 Milvus 要求的 []float32（保证类型与维度一致）
 			vec32 := make([]float32, len(vectors[i]))
 			for j, v := range vectors[i] {
 				vec32[j] = float32(v)
@@ -108,13 +126,14 @@ func NewMilvusStore(ctx context.Context, cli milvus.Client, collection string, a
 		return nil, err
 	}
 
-	// Retriever 的 MetricType 保持不变（你已正确设置）
+	// Retriever 的 MetricType 保持与向量类型一致（float→COSINE/binary→HAMMING）
 	var retrieverMetric entity.MetricType
 	if strings.ToLower(vectorType) == "binary" {
 		retrieverMetric = entity.HAMMING
 	} else {
 		retrieverMetric = entity.COSINE
 	}
+	// customVectorConverter 将检索向量转换为 Milvus 的向量类型
 	customVectorConverter := func(ctx context.Context, vectors [][]float64) ([]entity.Vector, error) {
 		if len(vectors) == 0 || len(vectors[0]) == 0 {
 			return nil, fmt.Errorf("empty vectors")
@@ -129,6 +148,8 @@ func NewMilvusStore(ctx context.Context, cli milvus.Client, collection string, a
 		"ef": 64,
 	})
 
+	// customRetrieverConverter 将 Milvus 搜索结果转换为 schema.Document
+	// 注意：确保 ID、content、metadata 读取正确，并回传 score
 	customRetrieverConverter := func(ctx context.Context, result milvus.SearchResult) ([]*schema.Document, error) {
 		logger.Info(ctx, "Actual type of result", "type", fmt.Sprintf("%T", result))
 		logger.Info(ctx, "Actual type of result.Fields", "type", fmt.Sprintf("%T", result.Fields))
@@ -144,8 +165,7 @@ func NewMilvusStore(ctx context.Context, cli milvus.Client, collection string, a
 			return nil, fmt.Errorf("ID is not VarChar")
 		}
 
-		// content 字段（在不同 SDK 版本中，Fields 可能是切片）
-		// 找 content 字段
+		// content 字段（在不同 SDK 版本中，Fields 可能是切片），需要遍历查找
 		var contentCol *entity.ColumnVarChar
 		for _, col := range result.Fields {
 			if col.Name() == "content" {
@@ -195,7 +215,7 @@ func NewMilvusStore(ctx context.Context, cli milvus.Client, collection string, a
 				},
 			}
 
-			// 合并原始 metadata
+			// 合并原始 metadata（JSON 字段），补充到返回文档的 MetaData
 			if i < len(metaBytes) && metaBytes[i] != nil {
 				var m map[string]any
 				if err = sonic.Unmarshal(metaBytes[i], &m); err == nil {
@@ -222,7 +242,7 @@ func NewMilvusStore(ctx context.Context, cli milvus.Client, collection string, a
 		ScoreThreshold:    0,
 		DocumentConverter: customRetrieverConverter,
 
-		// 👇 关键新增：明确指定要返回哪些字段！
+		// 明确指定要返回哪些字段（保证 ID/内容/元数据齐全）
 		OutputFields: []string{"id", "content", "metadata"},
 	})
 	if err != nil {
@@ -307,7 +327,14 @@ func (s *MilvusStore) DeleteByIDs(ctx context.Context, ids []string) error {
 	return s.client.Delete(ctx, s.collection, "", expr)
 }
 
-// InsertChunks inserts pre-chunked and pre-embedded data into Milvus
+// InsertChunks 批量将分块与向量写入 Milvus（列式插入）
+// 用途：
+// - 高效批量入库，避免逐条插入的性能问题
+// 参数：
+// - chunks：文本分块列表
+// - embeddings：对应的向量列表（长度与分块一致）
+// 返回：
+// - error：失败时返回错误
 func (s *MilvusStore) InsertChunks(ctx context.Context, chunks []*models.TextChunk, embeddings [][]float64) error {
 	if len(chunks) != len(embeddings) {
 		return fmt.Errorf("chunks and embeddings length mismatch")
@@ -350,7 +377,7 @@ func (s *MilvusStore) InsertChunks(ctx context.Context, chunks []*models.TextChu
 		metadatas[i] = metaBytes
 	}
 
-	// 构造正确的 columns：每个字段一个 Column，包含所有数据
+	// 构造列：每个字段一个 Column，包含所有数据（id/content/vector/metadata）
 	columns := []entity.Column{
 		entity.NewColumnVarChar("id", ids),
 		entity.NewColumnVarChar("content", contents),
@@ -362,6 +389,7 @@ func (s *MilvusStore) InsertChunks(ctx context.Context, chunks []*models.TextChu
 	return err
 }
 
+// buildFields 构造集合字段定义（主键、向量、内容、元数据）
 func buildFields(vectorField string, vectorDim int, vectorType string) []*entity.Field {
 	id := &entity.Field{Name: "id", DataType: entity.FieldTypeVarChar, TypeParams: map[string]string{"max_length": "256"}, PrimaryKey: true}
 	content := &entity.Field{Name: "content", DataType: entity.FieldTypeVarChar, TypeParams: map[string]string{"max_length": "8192"}}
@@ -375,6 +403,7 @@ func buildFields(vectorField string, vectorDim int, vectorType string) []*entity
 	return []*entity.Field{id, vector, content, metadata}
 }
 
+// LogDiagnostics 打印集合结构诊断信息（字段名、类型与参数）
 func (s *MilvusStore) LogDiagnostics(ctx context.Context) error {
 	coll, err := s.client.DescribeCollection(ctx, s.collection)
 	if err != nil {

@@ -21,6 +21,9 @@ import (
 
 func main() {
 	ctx := context.Background()
+	// 文件功能：文档服务入口，初始化配置、数据库与路由；支持端口环境变量覆盖
+	// 作者：system
+	// 创建日期：2025-11-26；修改日期：2025-11-26
 
 	// Load configuration
 	cfg, err := config.Load()
@@ -48,7 +51,8 @@ func main() {
 	}
 
 	// Initialize document service
-	docService := document.NewDocumentService(db, cfg.Storage.UploadPath, cfg.Storage.MaxFileSize, cfg.Storage.AllowedTypes)
+	// 传入网关地址用于触发向量化流水线
+	docService := document.NewDocumentService(db, cfg.Storage.UploadPath, cfg.Storage.MaxFileSize, cfg.Storage.AllowedTypes, cfg.Gateway.EntryBaseURL)
 	docHandler := document.NewHandler(docService)
 
 	// Initialize auth middleware
@@ -76,14 +80,19 @@ func main() {
 	docHandler.SetupRoutes(router, authMiddleware)
 
 	// Create HTTP server
+	// 支持独立端口环境变量覆盖（EKB_DOCUMENT_PORT）；为空时回退到通用 server.port
+	port := os.Getenv("EKB_DOCUMENT_PORT")
+	if port == "" {
+		port = cfg.Server.Port
+	}
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%s", cfg.Server.Port),
+		Addr:    fmt.Sprintf(":%s", port),
 		Handler: router,
 	}
 
 	// Start server in a goroutine
 	go func() {
-		logger.Info(ctx, "Starting HTTP server", "port", cfg.Server.Port)
+		logger.Info(ctx, "Starting HTTP server", "port", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(ctx, "Failed to start server", "error", err.Error())
 			os.Exit(1)

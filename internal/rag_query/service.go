@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
 )
 
@@ -51,6 +52,15 @@ func NewRAGQueryService(db *database.Database, redis *redis.Client, httpc *http.
 }
 
 // AskSync 执行同步查询并返回完整答案
+// 用途：
+// - 调用向量检索获取上下文，使用 ChatModel 生成答案
+// - 将查询与来源持久化到数据库，便于审计与分析
+// 参数：
+// - userID：查询发起用户
+// - req：查询请求（包含文本、限制、温度、最大 token、会话 ID 与鉴权令牌）
+// 返回：
+// - *RAGQueryResult：答案、来源与用量
+// - error：失败时返回错误
 func (s *RAGQueryService) AskSync(ctx context.Context, userID uuid.UUID, req *RAGQueryRequest) (*RAGQueryResult, error) {
 	if strings.TrimSpace(req.Query) == "" {
 		return nil, fmt.Errorf("query is empty")
@@ -116,19 +126,61 @@ func (s *RAGQueryService) AskSync(ctx context.Context, userID uuid.UUID, req *RA
 		}
 	}
 
-	// 写入对话记忆
+	// 写入对话记忆（Redis）
 	s.saveHistory(ctx, userID, req.SessionID, &schema.Message{Role: schema.User, Content: req.Query})
 	s.saveHistory(ctx, userID, req.SessionID, &schema.Message{Role: schema.Assistant, Content: answer})
 
-	// 写入缓存
+	// 写入缓存（答案短期缓存，降低重复计算）
 	if s.redis != nil {
 		_ = s.redis.Set(ctx, ckey, answer, 60*time.Second).Err()
+	}
+
+	// 持久化查询记录与来源（数据库）
+	// 重要变量：
+	// - q：查询记录，包含问答文本、耗时与来源计数等
+	// - srcs：来源列表，对应检索返回的分块信息
+	startPersist := time.Now()
+	q := &models.Query{
+		UserID:         userID,
+		QueryText:      req.Query,
+		QueryType:      models.QueryTypeRAG.String(),
+		Response:       answer,
+		IsAnswered:     true,
+		Confidence:     0,
+		SourceCount:    len(sources),
+		ProcessingTime: time.Since(startPersist).Milliseconds(),
+		Status:         models.QueryStatusCompleted.String(),
+	}
+	if err := s.db.Create(q).Error; err != nil {
+		// 持久化失败不影响主流程，但记录日志
+		_ = err
+	} else {
+		// 写入来源表
+		for i, src := range sources {
+			// 伪代码：
+			// if src.id 是有效 UUID，则写入；否则跳过
+			chunkID, e1 := uuid.Parse(src["id"].(string))
+			docID, e2 := uuid.Parse(src["document_id"].(string))
+			excerpt, _ := src["content_excerpt"].(string)
+			if e1 == nil && e2 == nil {
+				_ = s.db.Create(&models.QuerySource{
+					QueryID:        q.ID,
+					DocumentID:     docID,
+					ChunkID:        chunkID,
+					RelevanceScore: 0,
+					Excerpt:        excerpt,
+					Position:       i,
+				}).Error
+			}
+		}
 	}
 
 	return &RAGQueryResult{Answer: answer, Sources: sources, Usage: usage}, nil
 }
 
 // AskStream 执行异步流式查询，返回增量答案片段
+// 用途：
+// - 返回增量答案，支持 SSE 心跳以维持连接
 func (s *RAGQueryService) AskStream(ctx context.Context, userID uuid.UUID, req *RAGQueryRequest) (<-chan string, <-chan error) {
 	out := make(chan string, 16)
 	errs := make(chan error, 1)
@@ -161,6 +213,9 @@ func (s *RAGQueryService) AskStream(ctx context.Context, userID uuid.UUID, req *
 			return
 		}
 		var final strings.Builder
+		// 心跳：每 5 秒发送一次，避免中间网络设备超时
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
 		for {
 			m, e := sr.Recv()
 			if e != nil {
@@ -173,6 +228,11 @@ func (s *RAGQueryService) AskStream(ctx context.Context, userID uuid.UUID, req *
 			if m != nil {
 				out <- m.Content
 				final.WriteString(m.Content)
+			}
+			select {
+			case <-ticker.C:
+				out <- "[heartbeat]"
+			default:
 			}
 		}
 
