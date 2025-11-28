@@ -66,6 +66,7 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
+	router.Use(middleware.RequestID())
 
 	// Health check endpoint
 	router.GET("/health", func(c *gin.Context) {

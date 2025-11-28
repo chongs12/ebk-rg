@@ -103,6 +103,7 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
+	router.Use(middleware.RequestID())
 
 	// 健康检查端点：便于探针与监控
 	router.GET("/health", func(c *gin.Context) {

@@ -1,0 +1,9 @@
+.git
+**/bin
+**/obj
+**/*.log
+**/*.tmp
+**/uploads
+.env
+node_modules
+**/*.md

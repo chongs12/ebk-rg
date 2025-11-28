@@ -39,6 +39,7 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
+	router.Use(middleware.RequestID())
 
 	// 简易限流中间件（令牌桶）：针对每个客户端 IP 限制每秒请求数
 	// 变量说明：

@@ -44,6 +44,7 @@ func main() {
 	// 创建日期：2025-11-26；修改日期：2025-11-26
 	cfg := config.Get()
 	logger.Init()
+	ctx := context.Background()
 
 	if cfg.Server.Mode == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -73,6 +74,7 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
+	router.Use(middleware.RequestID())
 
 	router.GET("/health", authHandler.HealthCheck)
 
@@ -107,9 +109,9 @@ func main() {
 	}
 
 	go func() {
-		logger.Infof("Starting auth service on port %s", port)
+		logger.Info(ctx, "Starting auth service", "port", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatalf("Failed to start server: %v", err)
+			logger.Fatal(ctx, "Failed to start server", "error", err)
 		}
 	}()
 
@@ -117,14 +119,14 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	logger.Info("Shutting down auth service...")
+	logger.Info(ctx, "Shutting down auth service...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		logger.Errorf("Server forced to shutdown: %v", err)
+		logger.Error(ctx, "Server forced to shutdown", "error", err)
 	}
 
-	logger.Info("Auth service stopped")
+	logger.Info(ctx, "Auth service stopped")
 }
