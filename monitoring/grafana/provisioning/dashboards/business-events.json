@@ -1,0 +1,26 @@
+{
+  "title": "Business Events",
+  "panels": [
+    {
+      "type": "graph",
+      "title": "Uploads per minute",
+      "targets": [
+        {"expr": "sum(rate(ekb_upload_total[1m])) by (service, status)", "legendFormat": "{{service}} {{status}}"}
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Vectorize per minute",
+      "targets": [
+        {"expr": "sum(rate(ekb_vectorize_total[1m])) by (service, status)", "legendFormat": "{{service}} {{status}}"}
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "RAG queries per minute",
+      "targets": [
+        {"expr": "sum(rate(ekb_rag_query_total[1m])) by (service, status)", "legendFormat": "{{service}} {{status}}"}
+      ]
+    }
+  ]
+}

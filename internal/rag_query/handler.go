@@ -1,20 +1,23 @@
 package rag_query
 
 import (
-	"net/http"
-	"time"
+    "net/http"
+    "time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+    "github.com/gin-gonic/gin"
+    "github.com/google/uuid"
 
-	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
 )
 
 // Handler RAG查询模块的路由处理器
 type Handler struct {
-	service *RAGQueryService
+    service *RAGQueryService
 }
+
+var ragBM = metrics.NewBusinessMetrics(metrics.DefaultRegistry(), "ekb")
 
 // NewHandler 创建处理器
 func NewHandler(service *RAGQueryService) *Handler { return &Handler{service: service} }
@@ -30,7 +33,7 @@ type RAGRequest struct {
 
 // Ask 同步查询生成
 func (h *Handler) Ask(c *gin.Context) {
-	ctx := c.Request.Context()
+    ctx := c.Request.Context()
 
 	uidRaw, exists := c.Get("user_id")
 	if !exists {
@@ -68,19 +71,23 @@ func (h *Handler) Ask(c *gin.Context) {
 		req.Temperature = 0.7
 	}
 
-	start := time.Now()
-	res, err := h.service.AskSync(ctx, uid, &RAGQueryRequest{Query: req.Query, Limit: req.Limit, Temperature: req.Temperature, MaxTokens: req.MaxTokens, SessionID: req.SessionID, AuthToken: c.GetHeader("Authorization")})
-	if err != nil {
-		logger.Error(ctx, "RAG Ask failed", "error", err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "rag ask failed"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"answer":     res.Answer,
-		"sources":    res.Sources,
-		"usage":      res.Usage,
-		"latency_ms": time.Since(start).Milliseconds(),
-	})
+    start := time.Now()
+    res, err := h.service.AskSync(ctx, uid, &RAGQueryRequest{Query: req.Query, Limit: req.Limit, Temperature: req.Temperature, MaxTokens: req.MaxTokens, SessionID: req.SessionID, AuthToken: c.GetHeader("Authorization")})
+    if err != nil {
+        logger.Error(ctx, "RAG Ask failed", "error", err.Error())
+        ragBM.RagQueryTotal.WithLabelValues("query", "fail").Inc()
+        ragBM.RagQueryDuration.WithLabelValues("query", "fail").Observe(time.Since(start).Seconds())
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "rag ask failed"})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{
+        "answer":     res.Answer,
+        "sources":    res.Sources,
+        "usage":      res.Usage,
+        "latency_ms": time.Since(start).Milliseconds(),
+    })
+    ragBM.RagQueryTotal.WithLabelValues("query", "success").Inc()
+    ragBM.RagQueryDuration.WithLabelValues("query", "success").Observe(time.Since(start).Seconds())
 }
 
 // AskStream 异步流式查询生成（SSE）

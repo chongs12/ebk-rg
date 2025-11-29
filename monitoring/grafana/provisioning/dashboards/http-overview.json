@@ -1,0 +1,35 @@
+{
+  "title": "HTTP Overview",
+  "panels": [
+    {
+      "type": "graph",
+      "title": "Requests per second",
+      "targets": [
+        {
+          "expr": "sum(rate(ekb_http_requests_total[1m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Latency P95",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(ekb_http_request_duration_seconds_bucket[1m])) by (le, service))",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Error rate",
+      "targets": [
+        {
+          "expr": "sum(rate(ekb_http_requests_total{status=\"4xx\"}[1m])) by (service) + sum(rate(ekb_http_requests_total{status=\"5xx\"}[1m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    }
+  ]
+}

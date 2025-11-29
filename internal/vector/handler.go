@@ -1,16 +1,20 @@
 package vector
 
 import (
-	"net/http"
+    "net/http"
+    "time"
 
-	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
-	"github.com/gin-gonic/gin"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
+    "github.com/gin-gonic/gin"
 )
 
 type Handler struct {
-	service *VectorService
+    service *VectorService
 }
+
+var vecBM = metrics.NewBusinessMetrics(metrics.DefaultRegistry(), "ekb")
 
 func NewHandler(service *VectorService) *Handler {
 	return &Handler{
@@ -33,7 +37,8 @@ type SearchSimilarRequest struct {
 
 // ChunkDocument chunks a document into text segments
 func (h *Handler) ChunkDocument(c *gin.Context) {
-	ctx := c.Request.Context()
+    ctx := c.Request.Context()
+    start := time.Now()
 
 	_, exists := c.Get("user_id")
 	if !exists {
@@ -49,18 +54,22 @@ func (h *Handler) ChunkDocument(c *gin.Context) {
 
 	// Chunk the document content
 	chunks, err := h.service.ChunkText(ctx, req.DocumentID, req.Content, req.ChunkSize)
-	if err != nil {
-		logger.Error(ctx, "Failed to chunk document", "error", err.Error(), "document_id", req.DocumentID)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to chunk document"})
-		return
-	}
+    if err != nil {
+        logger.Error(ctx, "Failed to chunk document", "error", err.Error(), "document_id", req.DocumentID)
+        vecBM.VectorizeTotal.WithLabelValues("vector", "fail").Inc()
+        vecBM.VectorizeDuration.WithLabelValues("vector", "fail").Observe(time.Since(start).Seconds())
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to chunk document"})
+        return
+    }
 
 	// Generate embeddings for chunks
-	if err := h.service.GenerateEmbeddings(ctx, chunks); err != nil {
-		logger.Error(ctx, "Failed to generate embeddings", "error", err.Error(), "document_id", req.DocumentID)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate embeddings"})
-		return
-	}
+    if err := h.service.GenerateEmbeddings(ctx, chunks); err != nil {
+        logger.Error(ctx, "Failed to generate embeddings", "error", err.Error(), "document_id", req.DocumentID)
+        vecBM.VectorizeTotal.WithLabelValues("vector", "fail").Inc()
+        vecBM.VectorizeDuration.WithLabelValues("vector", "fail").Observe(time.Since(start).Seconds())
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate embeddings"})
+        return
+    }
 
 	// sanitize chunk output: remove nested document metadata
 	sanitized := make([]map[string]interface{}, 0, len(chunks))
@@ -76,11 +85,13 @@ func (h *Handler) ChunkDocument(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"document_id": req.DocumentID,
-		"chunks":      sanitized,
-		"message":     "document chunked and embedded successfully",
-	})
+    c.JSON(http.StatusOK, gin.H{
+        "document_id": req.DocumentID,
+        "chunks":      sanitized,
+        "message":     "document chunked and embedded successfully",
+    })
+    vecBM.VectorizeTotal.WithLabelValues("vector", "success").Inc()
+    vecBM.VectorizeDuration.WithLabelValues("vector", "success").Observe(time.Since(start).Seconds())
 }
 
 // SearchSimilar searches for similar text chunks

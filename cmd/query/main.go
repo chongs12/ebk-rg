@@ -1,25 +1,26 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
+    "context"
+    "fmt"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
 
-	"github.com/gin-gonic/gin"
+    "github.com/gin-gonic/gin"
 
-	arkmodel "github.com/cloudwego/eino-ext/components/model/ark"
+    arkmodel "github.com/cloudwego/eino-ext/components/model/ark"
 
-	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
-	"github.com/chongs12/enterprise-knowledge-base/internal/rag_query"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/config"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
-	"github.com/redis/go-redis/v9"
+    "github.com/chongs12/enterprise-knowledge-base/internal/common/models"
+    "github.com/chongs12/enterprise-knowledge-base/internal/rag_query"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/config"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/database"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
+    "github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -74,10 +75,13 @@ func main() {
 	if cfg.Server.Mode == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	router := gin.New()
-	router.Use(gin.Logger())
-	router.Use(gin.Recovery())
-	router.Use(middleware.RequestID())
+    router := gin.New()
+    router.Use(gin.Logger())
+    router.Use(gin.Recovery())
+    router.Use(middleware.RequestID())
+    hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "query")
+    router.Use(metrics.MetricsMiddleware("query", hm))
+    router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy", "service": "rag_query", "timestamp": time.Now().Unix()})

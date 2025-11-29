@@ -10,4 +10,5 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /out/app /app/app
 ENV GIN_MODE=release
+ENV EKB_SERVICE_NAME=auth
 CMD ["/app/app"]

@@ -12,4 +12,5 @@ COPY --from=builder /out/app /app/app
 RUN mkdir -p /app/uploads
 VOLUME ["/app/uploads"]
 ENV GIN_MODE=release
+ENV EKB_SERVICE_NAME=document
 CMD ["/app/app"]

@@ -141,9 +141,35 @@ services:
     networks:
       - ekb-net
 
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    container_name: ekb-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - ekb-net
+
+  grafana:
+    image: grafana/grafana:12.2.1
+    container_name: ekb-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    networks:
+      - ekb-net
+
 networks:
   ekb-net:
     driver: bridge
 
 volumes:
   uploads:
+  prom-data:
+  grafana-data:

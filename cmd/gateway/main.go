@@ -1,22 +1,23 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
+    "context"
+    "fmt"
+    "io"
+    "net/http"
+    "net/url"
+    "os"
+    "os/signal"
+    "strings"
+    "syscall"
+    "time"
 
-	"github.com/gin-gonic/gin"
+    "github.com/gin-gonic/gin"
 
-	"github.com/chongs12/enterprise-knowledge-base/pkg/config"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/config"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
 )
 
 func main() {
@@ -36,10 +37,13 @@ func main() {
 	if cfg.Server.Mode == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	router := gin.New()
-	router.Use(gin.Logger())
-	router.Use(gin.Recovery())
-	router.Use(middleware.RequestID())
+    router := gin.New()
+    router.Use(gin.Logger())
+    router.Use(gin.Recovery())
+    router.Use(middleware.RequestID())
+    hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "gateway")
+    router.Use(metrics.MetricsMiddleware("gateway", hm))
+    router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
 
 	// 简易限流中间件（令牌桶）：针对每个客户端 IP 限制每秒请求数
 	// 变量说明：

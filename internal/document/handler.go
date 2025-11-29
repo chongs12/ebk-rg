@@ -1,20 +1,24 @@
 package document
 
 import (
-	"fmt"
-	"net/http"
-	"strconv"
+    "fmt"
+    "net/http"
+    "strconv"
+    "time"
 
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
+    "github.com/gin-gonic/gin"
+    "gorm.io/gorm"
 
-	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
 )
 
 type Handler struct {
-	service *DocumentService
+    service *DocumentService
 }
+
+var docBM = metrics.NewBusinessMetrics(metrics.DefaultRegistry(), "ekb")
 
 func NewHandler(service *DocumentService) *Handler {
 	return &Handler{service: service}
@@ -22,25 +26,32 @@ func NewHandler(service *DocumentService) *Handler {
 
 // UploadDocument handles document upload
 func (h *Handler) UploadDocument(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
-		return
-	}
+    start := time.Now()
+    userID, exists := c.Get("user_id")
+    if !exists {
+        docBM.UploadTotal.WithLabelValues("document", "fail").Inc()
+        docBM.UploadDuration.WithLabelValues("document", "fail").Observe(time.Since(start).Seconds())
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+        return
+    }
 
 	// Parse multipart form
-	file, header, err := c.Request.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
-		return
-	}
+    file, header, err := c.Request.FormFile("file")
+    if err != nil {
+        docBM.UploadTotal.WithLabelValues("document", "fail").Inc()
+        docBM.UploadDuration.WithLabelValues("document", "fail").Observe(time.Since(start).Seconds())
+        c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+        return
+    }
 	defer file.Close()
 
 	// Validate file size (max 50MB)
-	if header.Size > 50*1024*1024 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file size exceeds 50MB limit"})
-		return
-	}
+    if header.Size > 50*1024*1024 {
+        docBM.UploadTotal.WithLabelValues("document", "fail").Inc()
+        docBM.UploadDuration.WithLabelValues("document", "fail").Observe(time.Since(start).Seconds())
+        c.JSON(http.StatusBadRequest, gin.H{"error": "file size exceeds 50MB limit"})
+        return
+    }
 
 	// Get title from form data
 	title := c.PostForm("title")
@@ -59,17 +70,21 @@ func (h *Handler) UploadDocument(c *gin.Context) {
 		UserID:      userID.(string),
 		AuthToken:   c.GetHeader("Authorization"),
 	}
-	doc, err := h.service.UploadDocument(ctx, uploadReq)
-	if err != nil {
-		logger.Error(ctx, "Failed to upload document", "error", err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upload document"})
-		return
-	}
+    doc, err := h.service.UploadDocument(ctx, uploadReq)
+    if err != nil {
+        logger.Error(ctx, "Failed to upload document", "error", err.Error())
+        docBM.UploadTotal.WithLabelValues("document", "fail").Inc()
+        docBM.UploadDuration.WithLabelValues("document", "fail").Observe(time.Since(start).Seconds())
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upload document"})
+        return
+    }
 
-	c.JSON(http.StatusCreated, gin.H{
-		"message":  "document uploaded successfully",
-		"document": doc,
-	})
+    c.JSON(http.StatusCreated, gin.H{
+        "message":  "document uploaded successfully",
+        "document": doc,
+    })
+    docBM.UploadTotal.WithLabelValues("document", "success").Inc()
+    docBM.UploadDuration.WithLabelValues("document", "success").Observe(time.Since(start).Seconds())
 }
 
 // GetDocument retrieves a document by ID

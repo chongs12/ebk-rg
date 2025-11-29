@@ -1,25 +1,26 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
+    "context"
+    "fmt"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
 
-	"github.com/gin-gonic/gin"
+    "github.com/gin-gonic/gin"
 
-	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
-	"github.com/chongs12/enterprise-knowledge-base/internal/embedding"
-	"github.com/chongs12/enterprise-knowledge-base/internal/vector"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/config"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
-	milvus "github.com/milvus-io/milvus-sdk-go/v2/client"
-	"github.com/redis/go-redis/v9"
+    "github.com/chongs12/enterprise-knowledge-base/internal/common/models"
+    "github.com/chongs12/enterprise-knowledge-base/internal/embedding"
+    "github.com/chongs12/enterprise-knowledge-base/internal/vector"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/config"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/database"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
+    milvus "github.com/milvus-io/milvus-sdk-go/v2/client"
+    "github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -100,10 +101,13 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	router := gin.New()
-	router.Use(gin.Logger())
-	router.Use(gin.Recovery())
-	router.Use(middleware.RequestID())
+    router := gin.New()
+    router.Use(gin.Logger())
+    router.Use(gin.Recovery())
+    router.Use(middleware.RequestID())
+    hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "vector")
+    router.Use(metrics.MetricsMiddleware("vector", hm))
+    router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
 
 	// 健康检查端点：便于探针与监控
 	router.GET("/health", func(c *gin.Context) {

@@ -14,6 +14,7 @@ import (
 	"github.com/chongs12/enterprise-knowledge-base/pkg/config"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -75,6 +76,9 @@ func main() {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 	router.Use(middleware.RequestID())
+	hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "auth")
+	router.Use(metrics.MetricsMiddleware("auth", hm))
+	router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
 
 	router.GET("/health", authHandler.HealthCheck)
 

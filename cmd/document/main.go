@@ -1,22 +1,23 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
+    "context"
+    "fmt"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
 
-	"github.com/gin-gonic/gin"
+    "github.com/gin-gonic/gin"
 
-	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
-	"github.com/chongs12/enterprise-knowledge-base/internal/document"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/config"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/chongs12/enterprise-knowledge-base/internal/common/models"
+    "github.com/chongs12/enterprise-knowledge-base/internal/document"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/config"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/database"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+    "github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
 )
 
 func main() {
@@ -63,10 +64,13 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	router := gin.New()
-	router.Use(gin.Logger())
-	router.Use(gin.Recovery())
-	router.Use(middleware.RequestID())
+    router := gin.New()
+    router.Use(gin.Logger())
+    router.Use(gin.Recovery())
+    router.Use(middleware.RequestID())
+    hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "document")
+    router.Use(metrics.MetricsMiddleware("document", hm))
+    router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
 
 	// Health check endpoint
 	router.GET("/health", func(c *gin.Context) {
