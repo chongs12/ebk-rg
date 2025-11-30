@@ -1,26 +1,28 @@
 package main
 
 import (
-    "context"
-    "fmt"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-    "github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
-    "github.com/chongs12/enterprise-knowledge-base/internal/common/models"
-    "github.com/chongs12/enterprise-knowledge-base/internal/embedding"
-    "github.com/chongs12/enterprise-knowledge-base/internal/vector"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/config"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/database"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
-    milvus "github.com/milvus-io/milvus-sdk-go/v2/client"
-    "github.com/redis/go-redis/v9"
+	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
+	"github.com/chongs12/enterprise-knowledge-base/internal/embedding"
+	"github.com/chongs12/enterprise-knowledge-base/internal/vector"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/config"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/tracing"
+	milvus "github.com/milvus-io/milvus-sdk-go/v2/client"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -53,6 +55,22 @@ func main() {
 		logger.Error(ctx, "Failed to migrate database", "error", err.Error())
 		os.Exit(1)
 	}
+
+	// Initialize Tracing
+	jaegerEndpoint := os.Getenv("JAEGER_ENDPOINT")
+	if jaegerEndpoint == "" {
+		jaegerEndpoint = "localhost:4317"
+	}
+	shutdown, err := tracing.InitTracer("vector-service", jaegerEndpoint)
+	if err != nil {
+		logger.Error(ctx, "Failed to init tracer", "error", err.Error())
+		os.Exit(1)
+	}
+	defer func() {
+		if err := shutdown(ctx); err != nil {
+			logger.Error(ctx, "Failed to shutdown tracer", "error", err.Error())
+		}
+	}()
 
 	// 优先使用 Ark + Milvus 方案
 	// 初始化 Ark 嵌入器：用于生成文本向量
@@ -100,14 +118,14 @@ func main() {
 	if cfg.Server.Mode == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-
-    router := gin.New()
-    router.Use(gin.Logger())
-    router.Use(gin.Recovery())
-    router.Use(middleware.RequestID())
-    hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "vector")
-    router.Use(metrics.MetricsMiddleware("vector", hm))
-    router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
+	router := gin.New()
+	router.Use(gin.Logger())
+	router.Use(gin.Recovery())
+	router.Use(middleware.RequestID())
+	router.Use(otelgin.Middleware("vector-service"))
+	hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "vector")
+	router.Use(metrics.MetricsMiddleware("vector", hm))
+	router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
 
 	// 健康检查端点：便于探针与监控
 	router.GET("/health", func(c *gin.Context) {

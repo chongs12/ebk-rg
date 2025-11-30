@@ -1,26 +1,28 @@
 package main
 
 import (
-    "context"
-    "fmt"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-    "github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
-    arkmodel "github.com/cloudwego/eino-ext/components/model/ark"
+	arkmodel "github.com/cloudwego/eino-ext/components/model/ark"
 
-    "github.com/chongs12/enterprise-knowledge-base/internal/common/models"
-    "github.com/chongs12/enterprise-knowledge-base/internal/rag_query"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/config"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/database"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
-    "github.com/redis/go-redis/v9"
+	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
+	"github.com/chongs12/enterprise-knowledge-base/internal/rag_query"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/config"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/tracing"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -50,6 +52,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize Tracing
+	jaegerEndpoint := os.Getenv("JAEGER_ENDPOINT")
+	if jaegerEndpoint == "" {
+		jaegerEndpoint = "localhost:4317"
+	}
+	shutdown, err := tracing.InitTracer("query-service", jaegerEndpoint)
+	if err != nil {
+		logger.Error(ctx, "Failed to init tracer", "error", err.Error())
+		os.Exit(1)
+	}
+	defer func() {
+		if err := shutdown(ctx); err != nil {
+			logger.Error(ctx, "Failed to shutdown tracer", "error", err.Error())
+		}
+	}()
+
 	rdb := redis.NewClient(&redis.Options{Addr: fmt.Sprintf("%s:%s", cfg.Redis.Host, cfg.Redis.Port), Password: cfg.Redis.Password, DB: cfg.Redis.DB})
 
 	// 初始化 Ark ChatModel 作为 LLM
@@ -75,13 +93,14 @@ func main() {
 	if cfg.Server.Mode == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-    router := gin.New()
-    router.Use(gin.Logger())
-    router.Use(gin.Recovery())
-    router.Use(middleware.RequestID())
-    hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "query")
-    router.Use(metrics.MetricsMiddleware("query", hm))
-    router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
+	router := gin.New()
+	router.Use(gin.Logger())
+	router.Use(gin.Recovery())
+	router.Use(middleware.RequestID())
+	router.Use(otelgin.Middleware("query-service"))
+	hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "query")
+	router.Use(metrics.MetricsMiddleware("query", hm))
+	router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy", "service": "rag_query", "timestamp": time.Now().Unix()})

@@ -1,23 +1,26 @@
 package main
 
 import (
-    "context"
-    "fmt"
-    "io"
-    "net/http"
-    "net/url"
-    "os"
-    "os/signal"
-    "strings"
-    "syscall"
-    "time"
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 
-    "github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
-    "github.com/chongs12/enterprise-knowledge-base/pkg/config"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/logger"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
-    "github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/config"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/tracing"
 )
 
 func main() {
@@ -34,16 +37,33 @@ func main() {
 	logger.Init()
 	logger.Info(ctx, "Starting gateway service", "service", "gateway", "environment", cfg.Server.Mode)
 
+	// Initialize Tracing
+	jaegerEndpoint := os.Getenv("JAEGER_ENDPOINT")
+	if jaegerEndpoint == "" {
+		jaegerEndpoint = "localhost:4317"
+	}
+	shutdown, err := tracing.InitTracer("gateway-service", jaegerEndpoint)
+	if err != nil {
+		logger.Error(ctx, "Failed to init tracer", "error", err.Error())
+		os.Exit(1)
+	}
+	defer func() {
+		if err := shutdown(ctx); err != nil {
+			logger.Error(ctx, "Failed to shutdown tracer", "error", err.Error())
+		}
+	}()
+
 	if cfg.Server.Mode == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-    router := gin.New()
-    router.Use(gin.Logger())
-    router.Use(gin.Recovery())
-    router.Use(middleware.RequestID())
-    hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "gateway")
-    router.Use(metrics.MetricsMiddleware("gateway", hm))
-    router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
+	router := gin.New()
+	router.Use(gin.Logger())
+	router.Use(gin.Recovery())
+	router.Use(middleware.RequestID())
+	router.Use(otelgin.Middleware("gateway-service"))
+	hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "gateway")
+	router.Use(metrics.MetricsMiddleware("gateway", hm))
+	router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
 
 	// 简易限流中间件（令牌桶）：针对每个客户端 IP 限制每秒请求数
 	// 变量说明：
@@ -124,7 +144,10 @@ func main() {
 // - 使用简易重试（指数退避）增强鲁棒性
 func makeProxy(base string, stripPrefix string) gin.HandlerFunc {
 	target, _ := url.Parse(base)
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	}
 	return func(c *gin.Context) {
 		u := *target
 		u.Path = strings.TrimSuffix(u.Path, "/") + c.Request.URL.Path

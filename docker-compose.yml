@@ -19,6 +19,7 @@ services:
       REDIS_DB: "0"
       JWT_SECRET: "local-secret"
       JWT_ISSUER: "ekb-local"
+      JAEGER_ENDPOINT: "jaeger:4317"
     ports:
       - "8081:8081"
     networks:
@@ -45,6 +46,7 @@ services:
       GW_ENTRY_BASE_URL: "http://gateway:8080"
       JWT_SECRET: "local-secret"
       JWT_ISSUER: "ekb-local"
+      JAEGER_ENDPOINT: "jaeger:4317"
     volumes:
       - uploads:/app/uploads
     ports:
@@ -80,6 +82,7 @@ services:
       ARK_REGION: "cn-beijing"
       JWT_SECRET: "local-secret"
       JWT_ISSUER: "ekb-local"
+      JAEGER_ENDPOINT: "jaeger:4317"
     ports:
       - "8083:8083"
     networks:
@@ -110,6 +113,7 @@ services:
       GW_ENTRY_BASE_URL: "http://gateway:8080"
       JWT_SECRET: "local-secret"
       JWT_ISSUER: "ekb-local"
+      JAEGER_ENDPOINT: "jaeger:4317"
     ports:
       - "8084:8084"
     networks:
@@ -136,6 +140,7 @@ services:
       GW_ENTRY_BASE_URL: "http://gateway:8080"
       JWT_SECRET: "local-secret"
       JWT_ISSUER: "ekb-local"
+      JAEGER_ENDPOINT: "jaeger:4317"
     ports:
       - "8080:8080"
     networks:
@@ -162,6 +167,18 @@ services:
     volumes:
       - ./monitoring/grafana/provisioning/datasources/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
       - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    networks:
+      - ekb-net
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: ekb-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686" # UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
     networks:
       - ekb-net
 

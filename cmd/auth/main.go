@@ -16,7 +16,9 @@ import (
 	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/tracing"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 // @title Enterprise Knowledge Base Auth Service API
@@ -61,6 +63,21 @@ func main() {
 		logger.Fatalf("Failed to migrate database: %v", err)
 	}
 
+	// Initialize Tracing
+	jaegerEndpoint := os.Getenv("JAEGER_ENDPOINT")
+	if jaegerEndpoint == "" {
+		jaegerEndpoint = "localhost:4317"
+	}
+	shutdown, err := tracing.InitTracer("auth-service", jaegerEndpoint)
+	if err != nil {
+		logger.Fatalf("Failed to init tracer: %v", err)
+	}
+	defer func() {
+		if err := shutdown(ctx); err != nil {
+			logger.Errorf("Failed to shutdown tracer: %v", err)
+		}
+	}()
+
 	authService := auth.NewAuthService(
 		db,
 		cfg.JWT.Secret,
@@ -76,6 +93,7 @@ func main() {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 	router.Use(middleware.RequestID())
+	router.Use(otelgin.Middleware("auth-service"))
 	hm := metrics.NewHTTPMetrics(metrics.DefaultRegistry(), "ekb", "auth")
 	router.Use(metrics.MetricsMiddleware("auth", hm))
 	router.GET("/metrics", gin.WrapH(metrics.MetricsHandler(metrics.DefaultRegistry())))
