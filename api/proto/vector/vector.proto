@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package vector;
+
+option go_package = "github.com/chongs12/enterprise-knowledge-base/api/proto/vector";
+
+service VectorService {
+  rpc Search (SearchRequest) returns (SearchResponse);
+}
+
+message SearchRequest {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message SearchResponse {
+  repeated Chunk chunks = 1;
+}
+
+message Chunk {
+  string id = 1;
+  string document_id = 2;
+  string content = 3;
+  int32 chunk_index = 4;
+  int32 start_pos = 5;
+  int32 end_pos = 6;
+  int32 word_count = 7;
+  float score = 8;
+}

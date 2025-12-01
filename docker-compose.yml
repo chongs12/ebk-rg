@@ -83,8 +83,10 @@ services:
       JWT_SECRET: "local-secret"
       JWT_ISSUER: "ekb-local"
       JAEGER_ENDPOINT: "jaeger:4317"
+      EKB_VECTOR_GRPC_PORT: "50053"
     ports:
       - "8083:8083"
+      - "50053:50053"
     networks:
       - ekb-net
 
@@ -114,6 +116,7 @@ services:
       JWT_SECRET: "local-secret"
       JWT_ISSUER: "ekb-local"
       JAEGER_ENDPOINT: "jaeger:4317"
+      VECTOR_GRPC_ADDR: "vector:50053"
     ports:
       - "8084:8084"
     networks:

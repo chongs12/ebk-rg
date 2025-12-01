@@ -15,7 +15,9 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc"
 
+	pb "github.com/chongs12/enterprise-knowledge-base/api/proto/vector"
 	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
 )
@@ -39,16 +41,22 @@ type RAGQueryResult struct {
 
 // RAGQueryService 提供检索增强生成的核心能力
 type RAGQueryService struct {
-	db     *database.Database
-	redis  *redis.Client
-	httpc  *http.Client
-	gwBase string
-	chat   *arkmodel.ChatModel
+	db         *database.Database
+	redis      *redis.Client
+	httpc      *http.Client
+	gwBase     string
+	vectorConn *grpc.ClientConn
+	vectorCli  pb.VectorServiceClient
+	chat       *arkmodel.ChatModel
 }
 
 // NewRAGQueryService 创建服务实例
-func NewRAGQueryService(db *database.Database, redis *redis.Client, httpc *http.Client, gatewayBase string, chat *arkmodel.ChatModel) *RAGQueryService {
-	return &RAGQueryService{db: db, redis: redis, httpc: httpc, gwBase: strings.TrimRight(gatewayBase, "/"), chat: chat}
+func NewRAGQueryService(db *database.Database, redis *redis.Client, httpc *http.Client, gatewayBase string, vectorConn *grpc.ClientConn, chat *arkmodel.ChatModel) *RAGQueryService {
+	var vectorCli pb.VectorServiceClient
+	if vectorConn != nil {
+		vectorCli = pb.NewVectorServiceClient(vectorConn)
+	}
+	return &RAGQueryService{db: db, redis: redis, httpc: httpc, gwBase: strings.TrimRight(gatewayBase, "/"), vectorConn: vectorConn, vectorCli: vectorCli, chat: chat}
 }
 
 // AskSync 执行同步查询并返回完整答案
@@ -74,8 +82,16 @@ func (s *RAGQueryService) AskSync(ctx context.Context, userID uuid.UUID, req *RA
 		}
 	}
 
-	// 语义检索：通过网关调用向量服务，严格遵守 limit
-	chunks, err := s.searchChunksViaGateway(ctx, req.AuthToken, req.Query, req.Limit)
+	// 语义检索：优先使用 gRPC，降级或配置缺失时走 HTTP 网关
+	var chunks []gatewayChunk
+	var err error
+	if s.vectorCli != nil {
+		chunks, err = s.searchChunksViaGRPC(ctx, req.Query, req.Limit)
+
+	} else {
+		chunks, err = s.searchChunksViaGateway(ctx, req.AuthToken, req.Query, req.Limit)
+
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +178,7 @@ func (s *RAGQueryService) AskSync(ctx context.Context, userID uuid.UUID, req *RA
 			chunkID, e1 := uuid.Parse(src["id"].(string))
 			docID, e2 := uuid.Parse(src["document_id"].(string))
 			excerpt, _ := src["content_excerpt"].(string)
+			excerpt = strings.ToValidUTF8(excerpt, "")
 			if e1 == nil && e2 == nil {
 				_ = s.db.Create(&models.QuerySource{
 					QueryID:        q.ID,
@@ -189,7 +206,14 @@ func (s *RAGQueryService) AskStream(ctx context.Context, userID uuid.UUID, req *
 		defer close(out)
 		defer close(errs)
 
-		chunks, err := s.searchChunksViaGateway(ctx, req.AuthToken, req.Query, req.Limit)
+		var chunks []gatewayChunk
+		var err error
+		if s.vectorCli != nil {
+			chunks, err = s.searchChunksViaGRPC(ctx, req.Query, req.Limit)
+
+		} else {
+			chunks, err = s.searchChunksViaGateway(ctx, req.AuthToken, req.Query, req.Limit)
+		}
 		if err != nil {
 			errs <- err
 			return

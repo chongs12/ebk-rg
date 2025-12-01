@@ -12,6 +12,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
+	"net"
+
+	pb "github.com/chongs12/enterprise-knowledge-base/api/proto/vector"
 	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
 	"github.com/chongs12/enterprise-knowledge-base/internal/embedding"
 	"github.com/chongs12/enterprise-knowledge-base/internal/vector"
@@ -23,6 +26,8 @@ import (
 	"github.com/chongs12/enterprise-knowledge-base/pkg/tracing"
 	milvus "github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -110,6 +115,24 @@ func main() {
 	rdb := redis.NewClient(&redis.Options{Addr: fmt.Sprintf("%s:%s", cfg.Redis.Host, cfg.Redis.Port), Password: cfg.Redis.Password, DB: cfg.Redis.DB})
 	vectorService := vector.NewVectorService(db, emb, mstore, rdb)
 	vectorHandler := vector.NewHandler(vectorService)
+
+	// Start gRPC server
+	go func() {
+		grpcPort := os.Getenv("EKB_VECTOR_GRPC_PORT")
+		if grpcPort == "" {
+			grpcPort = "50053"
+		}
+		lis, err := net.Listen("tcp", ":"+grpcPort)
+		if err != nil {
+			logger.Fatalf("failed to listen: %v", err)
+		}
+		s := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+		pb.RegisterVectorServiceServer(s, vector.NewGRPCServer(vectorService))
+		logger.Info(ctx, "Starting gRPC server", "port", grpcPort)
+		if err := s.Serve(lis); err != nil {
+			logger.Fatalf("failed to serve: %v", err)
+		}
+	}()
 
 	// 初始化鉴权中间件：保护私有接口
 	authMiddleware := middleware.NewAuthMiddleware(cfg.JWT.Secret)

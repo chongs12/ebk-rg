@@ -23,6 +23,9 @@ import (
 	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/tracing"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -47,7 +50,7 @@ func main() {
 	}
 	defer db.Close()
 
-	if err = db.AutoMigrate(&models.Query{}); err != nil {
+	if err = db.AutoMigrate(&models.Query{}, &models.QuerySource{}); err != nil {
 		logger.Error(ctx, "Failed to migrate database", "error", err.Error())
 		os.Exit(1)
 	}
@@ -86,7 +89,24 @@ func main() {
 
 	// 构建 RAG 服务与路由
 	httpc := &http.Client{Timeout: 30 * time.Second}
-	ragService := rag_query.NewRAGQueryService(db, rdb, httpc, cfg.Gateway.EntryBaseURL, chat)
+
+	// Init Vector gRPC client
+	var vectorConn *grpc.ClientConn
+	vectorAddr := os.Getenv("VECTOR_GRPC_ADDR")
+	if vectorAddr != "" {
+		conn, err := grpc.DialContext(ctx, vectorAddr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+		)
+		if err != nil {
+			logger.Error(ctx, "Failed to connect to vector service via gRPC", "error", err.Error())
+		} else {
+			vectorConn = conn
+			logger.Info(ctx, "Connected to vector service via gRPC", "addr", vectorAddr)
+		}
+	}
+
+	ragService := rag_query.NewRAGQueryService(db, rdb, httpc, cfg.Gateway.EntryBaseURL, vectorConn, chat)
 	ragHandler := rag_query.NewHandler(ragService)
 
 	authMiddleware := middleware.NewAuthMiddleware(cfg.JWT.Secret)

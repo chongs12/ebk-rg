@@ -272,6 +272,57 @@ func (s *VectorService) SearchSimilarChunks(ctx context.Context, query string, l
 	return result, nil
 }
 
+// Search performs semantic search and returns chunks with scores (distance)
+func (s *VectorService) Search(ctx context.Context, query string, limit int) ([]models.TextChunkWithDistance, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	
+	hits, err := s.store.Retrieve(ctx, query, limit, 0)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(hits) > limit {
+		hits = hits[:limit]
+	}
+
+	// Map ID -> Score
+	scoreMap := make(map[string]float32)
+	ids := make([]uuid.UUID, 0, len(hits))
+	for _, h := range hits {
+		id, err := uuid.Parse(h.ID)
+		if err == nil {
+			ids = append(ids, id)
+			scoreMap[h.ID] = h.Score
+		}
+	}
+
+	var dbChunks []models.TextChunk
+	if len(ids) > 0 {
+		if err := s.db.Where("id IN ?", ids).Find(&dbChunks).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	chunkMap := make(map[string]models.TextChunk)
+	for _, c := range dbChunks {
+		chunkMap[c.ID.String()] = c
+	}
+
+	result := make([]models.TextChunkWithDistance, 0, len(ids))
+	for _, id := range ids {
+		idStr := id.String()
+		if chunk, ok := chunkMap[idStr]; ok {
+			result = append(result, models.TextChunkWithDistance{
+				TextChunk: chunk,
+				Distance:  scoreMap[idStr],
+			})
+		}
+	}
+
+	return result, nil
+}
+
 // cosineSimilarity 计算两个向量的余弦相似度
 func cosineSimilarity(a, b []float64) float64 {
 	if len(a) != len(b) {

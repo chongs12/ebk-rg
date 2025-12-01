@@ -161,3 +161,8 @@ func (tc *TextChunk) BeforeCreate(tx *gorm.DB) error {
 func (tc *TextChunk) TableName() string {
 	return "text_chunks"
 }
+
+type TextChunkWithDistance struct {
+	TextChunk
+	Distance float32 `json:"distance"`
+}
