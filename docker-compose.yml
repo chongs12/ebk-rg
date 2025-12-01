@@ -25,6 +25,20 @@ services:
     networks:
       - ekb-net
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: ekb-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - ekb-net
+
   document:
     build:
       context: .
@@ -47,6 +61,8 @@ services:
       JWT_SECRET: "local-secret"
       JWT_ISSUER: "ekb-local"
       JAEGER_ENDPOINT: "jaeger:4317"
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      RABBITMQ_QUEUE: "vector_processing_queue"
     volumes:
       - uploads:/app/uploads
     ports:
@@ -84,6 +100,8 @@ services:
       JWT_ISSUER: "ekb-local"
       JAEGER_ENDPOINT: "jaeger:4317"
       EKB_VECTOR_GRPC_PORT: "50053"
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      RABBITMQ_QUEUE: "vector_processing_queue"
     ports:
       - "8083:8083"
       - "50053:50053"
@@ -193,3 +211,4 @@ volumes:
   uploads:
   prom-data:
   grafana-data:
+  rabbitmq-data:

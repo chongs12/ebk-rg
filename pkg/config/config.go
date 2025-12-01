@@ -22,6 +22,12 @@ type Config struct {
 	Tracing  TracingConfig
 	RagQuery RagQueryConfig
 	Gateway  GatewayConfig
+	RabbitMQ RabbitMQConfig
+}
+
+type RabbitMQConfig struct {
+	URL   string
+	Queue string
 }
 
 type ServerConfig struct {
@@ -216,6 +222,10 @@ func Load() (*Config, error) {
 			QueryBaseURL:    getEnvOrDefault("GW_QUERY_BASE_URL", viper.GetString("gateway.query_base_url")),
 			EntryBaseURL:    getEnvOrDefault("GW_ENTRY_BASE_URL", viper.GetString("gateway.entry_base_url")),
 		},
+		RabbitMQ: RabbitMQConfig{
+			URL:   getEnvOrDefault("RABBITMQ_URL", viper.GetString("rabbitmq.url")),
+			Queue: getEnvOrDefault("RABBITMQ_QUEUE", viper.GetString("rabbitmq.queue")),
+		},
 	}
 
 	return cfg, nil
@@ -282,6 +292,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.vector_base_url", "http://localhost:8083")
 	viper.SetDefault("gateway.query_base_url", "http://localhost:8084")
 	viper.SetDefault("gateway.entry_base_url", "http://localhost:8080")
+
+	viper.SetDefault("rabbitmq.url", "amqp://guest:guest@localhost:5672/")
+	viper.SetDefault("rabbitmq.queue", "vector_processing_queue")
 }
 
 func getEnvOrDefault(key, defaultValue string) string {

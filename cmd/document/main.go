@@ -19,6 +19,7 @@ import (
 	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/rabbitmq"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/tracing"
 )
 
@@ -69,9 +70,22 @@ func main() {
 		}
 	}()
 
+	// Initialize RabbitMQ Client
+	var mqClient *rabbitmq.Client
+	if cfg.RabbitMQ.URL != "" {
+		var err error
+		mqClient, err = rabbitmq.NewClient(cfg.RabbitMQ.URL, cfg.RabbitMQ.Queue)
+		if err != nil {
+			logger.Warn(ctx, "Failed to connect to RabbitMQ, falling back to HTTP", "error", err.Error())
+		} else {
+			defer mqClient.Close()
+			logger.Info(ctx, "Connected to RabbitMQ")
+		}
+	}
+
 	// Initialize document service
 	// 传入网关地址用于触发向量化流水线
-	docService := document.NewDocumentService(db, cfg.Storage.UploadPath, cfg.Storage.MaxFileSize, cfg.Storage.AllowedTypes, cfg.Gateway.EntryBaseURL)
+	docService := document.NewDocumentService(db, cfg.Storage.UploadPath, cfg.Storage.MaxFileSize, cfg.Storage.AllowedTypes, cfg.Gateway.EntryBaseURL, mqClient)
 	docHandler := document.NewHandler(docService)
 
 	// Initialize auth middleware

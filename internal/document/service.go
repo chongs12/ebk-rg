@@ -18,6 +18,7 @@ import (
 	"github.com/chongs12/enterprise-knowledge-base/internal/common/models"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/database"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/rabbitmq"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/utils"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -29,6 +30,7 @@ type DocumentService struct {
 	maxFileSize  int64
 	allowedTypes []string
 	gatewayBase  string
+	mqClient     *rabbitmq.Client
 }
 
 type UploadRequest struct {
@@ -62,9 +64,10 @@ type DocumentListResponse struct {
 // - maxFileSize：文件大小上限
 // - allowedTypes：允许的扩展名列表
 // - gatewayBase：网关基础地址，用于触发向量化
+// - mqClient：RabbitMQ 客户端（可选）
 // 返回：
 // - *DocumentService 实例
-func NewDocumentService(db *database.Database, uploadPath string, maxFileSize int64, allowedTypes []string, gatewayBase string) *DocumentService {
+func NewDocumentService(db *database.Database, uploadPath string, maxFileSize int64, allowedTypes []string, gatewayBase string, mqClient *rabbitmq.Client) *DocumentService {
 	if err := os.MkdirAll(uploadPath, 0755); err != nil {
 		logger.Fatalf("Failed to create upload directory: %v", err)
 	}
@@ -75,6 +78,7 @@ func NewDocumentService(db *database.Database, uploadPath string, maxFileSize in
 		maxFileSize:  maxFileSize,
 		allowedTypes: allowedTypes,
 		gatewayBase:  strings.TrimRight(gatewayBase, "/"),
+		mqClient:     mqClient,
 	}
 }
 
@@ -454,7 +458,23 @@ func (s *DocumentService) ShareDocument(ctx context.Context, documentID string, 
 // 返回：
 // - error：失败时返回错误
 func (s *DocumentService) TriggerVectorization(ctx context.Context, doc *models.Document, authToken string) error {
-	if s.gatewayBase == "" || doc == nil {
+	if doc == nil {
+		return nil
+	}
+
+	// 优先使用 RabbitMQ 异步解耦
+	if s.mqClient != nil {
+		payload := map[string]interface{}{
+			"document_id": doc.ID.String(),
+			"content":     doc.Content,
+			"chunk_size":  200,
+		}
+		b, _ := json.Marshal(payload)
+		logger.Info(ctx, "Publishing vectorization task to MQ", "document_id", doc.ID)
+		return s.mqClient.Publish(ctx, b)
+	}
+
+	if s.gatewayBase == "" {
 		return nil
 	}
 	payload := map[string]interface{}{

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"github.com/chongs12/enterprise-knowledge-base/pkg/logger"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/metrics"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/middleware"
+	"github.com/chongs12/enterprise-knowledge-base/pkg/rabbitmq"
 	"github.com/chongs12/enterprise-knowledge-base/pkg/tracing"
 	milvus "github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/redis/go-redis/v9"
@@ -115,6 +117,49 @@ func main() {
 	rdb := redis.NewClient(&redis.Options{Addr: fmt.Sprintf("%s:%s", cfg.Redis.Host, cfg.Redis.Port), Password: cfg.Redis.Password, DB: cfg.Redis.DB})
 	vectorService := vector.NewVectorService(db, emb, mstore, rdb)
 	vectorHandler := vector.NewHandler(vectorService)
+
+	// Start RabbitMQ Consumer
+	go func() {
+		mqClient, err := rabbitmq.NewClient(cfg.RabbitMQ.URL, cfg.RabbitMQ.Queue)
+		if err != nil {
+			logger.Error(ctx, "Failed to connect to RabbitMQ", "error", err.Error())
+			return
+		}
+		defer mqClient.Close()
+
+		msgs, err := mqClient.Consume()
+		if err != nil {
+			logger.Error(ctx, "Failed to start consumer", "error", err.Error())
+			return
+		}
+
+		logger.Info(ctx, "Started RabbitMQ consumer")
+
+		for d := range msgs {
+			var payload struct {
+				DocumentID string `json:"document_id"`
+				Content    string `json:"content"`
+				ChunkSize  int    `json:"chunk_size"`
+			}
+			if err := json.Unmarshal(d.Body, &payload); err != nil {
+				logger.Error(ctx, "Failed to unmarshal message", "error", err.Error())
+				d.Nack(false, false)
+				continue
+			}
+
+			logger.Info(ctx, "Processing document from MQ", "document_id", payload.DocumentID)
+			pCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			if err := vectorService.ProcessDocument(pCtx, payload.DocumentID, payload.Content, payload.ChunkSize); err != nil {
+				logger.Error(ctx, "Failed to process document", "error", err.Error(), "document_id", payload.DocumentID)
+				cancel()
+				d.Nack(false, false) // Requeue or dead-letter
+			} else {
+				logger.Info(ctx, "Successfully processed document", "document_id", payload.DocumentID)
+				d.Ack(false)
+				cancel()
+			}
+		}
+	}()
 
 	// Start gRPC server
 	go func() {

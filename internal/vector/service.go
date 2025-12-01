@@ -181,18 +181,28 @@ func (s *VectorService) GenerateEmbeddings(ctx context.Context, chunks []*models
 		if err != nil {
 			return fmt.Errorf("failed to convert embedding to bytes: %w", err)
 		}
-
-		// 保存至关系库（记录分块与向量字节，可选）
-		if err := s.storeChunk(ctx, chunk); err != nil {
-			return err
-		}
-		fmt.Printf("save chunk, row = %d\n", i)
 	}
-	fmt.Printf("you have done it %d chunks\n", len(chunks))
-	fmt.Printf("s.store type: %T\n", s.store)
+
+	// 保存至关系库（批量插入）
+	if err := s.storeChunks(ctx, chunks); err != nil {
+		return err
+	}
+	logger.Info(ctx, "Saved chunks to DB", "count", len(chunks))
 
 	// Step 4: 通过 MilvusStore 直接插入向量（高效批量列插入）
 	return s.store.(*MilvusStore).InsertChunks(ctx, chunks, embeddings)
+}
+
+// ProcessDocument 处理文档向量化全流程：切分 -> 生成向量 -> 存储
+func (s *VectorService) ProcessDocument(ctx context.Context, documentIDStr string, content string, chunkSize int) error {
+	chunks, err := s.ChunkText(ctx, documentIDStr, content, chunkSize)
+	if err != nil {
+		return fmt.Errorf("chunk text failed: %w", err)
+	}
+	if err := s.GenerateEmbeddings(ctx, chunks); err != nil {
+		return fmt.Errorf("generate embeddings failed: %w", err)
+	}
+	return nil
 }
 
 // generateSimpleEmbedding creates a simple embedding for demonstration
@@ -209,6 +219,17 @@ func sqrt(x float64) float64 {
 		z = (z + x/z) / 2
 	}
 	return z
+}
+
+// storeChunks 批量保存分块记录到数据库
+func (s *VectorService) storeChunks(ctx context.Context, chunks []*models.TextChunk) error {
+	if len(chunks) == 0 {
+		return nil
+	}
+	if err := s.db.Create(chunks).Error; err != nil {
+		return fmt.Errorf("failed to create chunks: %w", err)
+	}
+	return nil
 }
 
 // storeChunk 将分块记录保存到数据库
@@ -277,7 +298,7 @@ func (s *VectorService) Search(ctx context.Context, query string, limit int) ([]
 	if limit <= 0 {
 		limit = 10
 	}
-	
+
 	hits, err := s.store.Retrieve(ctx, query, limit, 0)
 	if err != nil {
 		return nil, err
