@@ -163,7 +163,7 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	allowedFields := []string{"first_name", "last_name", "avatar"}
+	allowedFields := []string{"first_name", "last_name", "avatar", "department"}
 	filteredUpdates := make(map[string]interface{})
 	for _, field := range allowedFields {
 		if value, ok := updates[field]; ok {

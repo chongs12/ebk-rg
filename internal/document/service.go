@@ -34,15 +34,17 @@ type DocumentService struct {
 }
 
 type UploadRequest struct {
-	File        multipart.File
-	Header      *multipart.FileHeader
-	Title       string
-	Description string
-	IsPublic    bool
-	Category    string
-	Tags        []string
-	UserID      string
-	AuthToken   string
+	File         multipart.File
+	Header       *multipart.FileHeader
+	Title        string
+	Description  string
+	IsPublic     bool
+	Visibility   string
+	DepartmentID string
+	Category     string
+	Tags         []string
+	UserID       string
+	AuthToken    string
 }
 
 type DocumentResponse struct {
@@ -129,20 +131,22 @@ func (s *DocumentService) UploadDocument(ctx context.Context, req *UploadRequest
 	}
 
 	doc := &models.Document{
-		ID:          docID,
-		Title:       req.Title,
-		Description: req.Description,
-		FileName:    req.Header.Filename,
-		FilePath:    filePath,
-		FileSize:    req.Header.Size,
-		FileType:    ext,
-		MimeType:    req.Header.Header.Get("Content-Type"),
-		Checksum:    checksum,
-		IsPublic:    req.IsPublic,
-		OwnerID:     userID,
-		Category:    req.Category,
-		Tags:        strings.Join(req.Tags, ","),
-		Status:      models.DocumentStatusPending.String(),
+		ID:           docID,
+		Title:        req.Title,
+		Description:  req.Description,
+		FileName:     req.Header.Filename,
+		FilePath:     filePath,
+		FileSize:     req.Header.Size,
+		FileType:     ext,
+		MimeType:     req.Header.Header.Get("Content-Type"),
+		Checksum:     checksum,
+		IsPublic:     req.IsPublic,
+		Visibility:   req.Visibility,
+		DepartmentID: req.DepartmentID,
+		OwnerID:      userID,
+		Category:     req.Category,
+		Tags:         strings.Join(req.Tags, ","),
+		Status:       models.DocumentStatusPending.String(),
 	}
 
 	textContent, wordCount, pageCount, language, err := s.extractTextContent(filePath, ext)

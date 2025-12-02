@@ -8,29 +8,31 @@ import (
 )
 
 type Document struct {
-	ID          uuid.UUID `gorm:"type:char(36);primary_key" json:"id"`
-	Title       string    `gorm:"type:varchar(255);not null" json:"title"`
-	Description string    `gorm:"type:text" json:"description"`
-	FileName    string    `gorm:"type:varchar(255);not null" json:"file_name"`
-	FilePath    string    `gorm:"type:varchar(500);not null" json:"file_path"`
-	FileSize    int64     `gorm:"not null" json:"file_size"`
-	FileType    string    `gorm:"type:varchar(50);not null" json:"file_type"`
-	MimeType    string    `gorm:"type:varchar(100);not null" json:"mime_type"`
-	Checksum    string    `gorm:"type:varchar(64);not null" json:"checksum"`
-	Content     string    `gorm:"type:longtext" json:"content"`
-	Language    string    `gorm:"type:varchar(10);default:'en'" json:"language"`
-	WordCount   int       `gorm:"default:0" json:"word_count"`
-	PageCount   int       `gorm:"default:0" json:"page_count"`
-	IsPublic    bool      `gorm:"default:false" json:"is_public"`
-	IsProcessed bool      `gorm:"default:false" json:"is_processed"`
-	Status      string    `gorm:"type:varchar(20);default:'pending'" json:"status"`
-	OwnerID     uuid.UUID `gorm:"type:char(36);not null" json:"owner_id"`
-	Owner       User      `gorm:"foreignKey:OwnerID" json:"owner"`
-	Tags        string    `gorm:"type:text" json:"tags"`
-	Keywords    string    `gorm:"type:text" json:"keywords"`
-	Category    string    `gorm:"type:varchar(100)" json:"category"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+    ID          uuid.UUID `gorm:"type:char(36);primary_key" json:"id"`
+    Title       string    `gorm:"type:varchar(255);not null" json:"title"`
+    Description string    `gorm:"type:text" json:"description"`
+    FileName    string    `gorm:"type:varchar(255);not null" json:"file_name"`
+    FilePath    string    `gorm:"type:varchar(500);not null" json:"file_path"`
+    FileSize    int64     `gorm:"not null" json:"file_size"`
+    FileType    string    `gorm:"type:varchar(50);not null" json:"file_type"`
+    MimeType    string    `gorm:"type:varchar(100);not null" json:"mime_type"`
+    Checksum    string    `gorm:"type:varchar(64);not null" json:"checksum"`
+    Content     string    `gorm:"type:longtext" json:"content"`
+    Language    string    `gorm:"type:varchar(10);default:'en'" json:"language"`
+    WordCount   int       `gorm:"default:0" json:"word_count"`
+    PageCount   int       `gorm:"default:0" json:"page_count"`
+    IsPublic    bool      `gorm:"default:false" json:"is_public"`
+    IsProcessed bool      `gorm:"default:false" json:"is_processed"`
+    Visibility  string    `gorm:"type:varchar(20);default:'public'" json:"visibility"`
+    DepartmentID string   `gorm:"type:varchar(100)" json:"department_id"`
+    Status      string    `gorm:"type:varchar(20);default:'pending'" json:"status"`
+    OwnerID     uuid.UUID `gorm:"type:char(36);not null" json:"owner_id"`
+    Owner       User      `gorm:"foreignKey:OwnerID" json:"owner"`
+    Tags        string    `gorm:"type:text" json:"tags"`
+    Keywords    string    `gorm:"type:text" json:"keywords"`
+    Category    string    `gorm:"type:varchar(100)" json:"category"`
+    CreatedAt   time.Time `json:"created_at"`
+    UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func (d *Document) BeforeCreate(tx *gorm.DB) error {

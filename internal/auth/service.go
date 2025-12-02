@@ -26,6 +26,7 @@ type RegisterRequest struct {
 	Password  string `json:"password" binding:"required,min=6"`
 	FirstName string `json:"first_name" binding:"max=50"`
 	LastName  string `json:"last_name" binding:"max=50"`
+	Department string `json:"department" binding:"max=100"`
 }
 
 type LoginRequest struct {
@@ -81,6 +82,7 @@ func (s *AuthService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 		Password:  string(hashedPassword),
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
+		Department: req.Department,
 		Role:      models.RoleUser.String(),
 		IsActive:  true,
 	}

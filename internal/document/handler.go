@@ -67,6 +67,8 @@ func (h *Handler) UploadDocument(c *gin.Context) {
 		Header:      header,
 		Title:       title,
 		Description: description,
+		Visibility:  c.PostForm("visibility"),
+		DepartmentID: c.PostForm("department_id"),
 		UserID:      userID.(string),
 		AuthToken:   c.GetHeader("Authorization"),
 	}

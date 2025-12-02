@@ -92,9 +92,17 @@ func (s *RAGQueryService) AskSync(ctx context.Context, userID uuid.UUID, req *RA
 		chunks, err = s.searchChunksViaGateway(ctx, req.AuthToken, req.Query, req.Limit)
 
 	}
-	if err != nil {
-		return nil, err
-	}
+    if err != nil {
+        return nil, err
+    }
+
+    chunks, err = s.filterChunksByPermission(ctx, userID, chunks)
+    if err != nil {
+        return nil, fmt.Errorf("permission check failed: %w", err)
+    }
+    if len(chunks) == 0 {
+        return &RAGQueryResult{Answer: "无结果", Sources: nil, Usage: map[string]int{}}, nil
+    }
 
 	// 来源组装与上下文构建
 	var sb strings.Builder
@@ -125,7 +133,7 @@ func (s *RAGQueryService) AskSync(ctx context.Context, userID uuid.UUID, req *RA
 	msgs = append(msgs, &schema.Message{Role: schema.User, Content: userContent})
 
 	// 生成调用
-	resp, err := s.chat.Generate(ctx, msgs) // 运行时参数（温度与最大token）
+    resp, err := s.chat.Generate(ctx, msgs) // 运行时参数（温度与最大token）
 	// 这里使用 Ark ChatModel 的配置方式：通过 ChatModelConfig 设定全局，或在 Generate 的 opts 中设定（若支持）。
 
 	if err != nil {
@@ -214,10 +222,20 @@ func (s *RAGQueryService) AskStream(ctx context.Context, userID uuid.UUID, req *
 		} else {
 			chunks, err = s.searchChunksViaGateway(ctx, req.AuthToken, req.Query, req.Limit)
 		}
-		if err != nil {
-			errs <- err
-			return
-		}
+        if err != nil {
+            errs <- err
+            return
+        }
+
+        chunks, err = s.filterChunksByPermission(ctx, userID, chunks)
+        if err != nil {
+            errs <- fmt.Errorf("permission check failed: %w", err)
+            return
+        }
+        if len(chunks) == 0 {
+            out <- "无结果"
+            return
+        }
 		var sb strings.Builder
 		for _, ch := range chunks {
 			sb.WriteString("\n[chunk#")
@@ -364,4 +382,54 @@ type gatewayChunk struct {
 	StartPos   int    `json:"start_pos"`
 	EndPos     int    `json:"end_pos"`
 	WordCount  int    `json:"word_count"`
+}
+func (s *RAGQueryService) filterChunksByPermission(ctx context.Context, userID uuid.UUID, chunks []gatewayChunk) ([]gatewayChunk, error) {
+    if len(chunks) == 0 {
+        return chunks, nil
+    }
+    var user models.User
+    if err := s.db.First(&user, "id = ?", userID).Error; err != nil {
+        return nil, fmt.Errorf("failed to get user: %w", err)
+    }
+    if user.Role == models.RoleAdmin.String() {
+        return chunks, nil
+    }
+    docIDs := make([]string, 0, len(chunks))
+    seen := make(map[string]bool)
+    for _, ch := range chunks {
+        if !seen[ch.DocumentID] {
+            docIDs = append(docIDs, ch.DocumentID)
+            seen[ch.DocumentID] = true
+        }
+    }
+    var docs []models.Document
+    if err := s.db.Where("id IN ?", docIDs).Find(&docs).Error; err != nil {
+        return nil, fmt.Errorf("failed to fetch documents: %w", err)
+    }
+    docMap := make(map[string]models.Document)
+    for _, d := range docs {
+        docMap[d.ID.String()] = d
+    }
+    allowed := make([]gatewayChunk, 0, len(chunks))
+    for _, ch := range chunks {
+        d, ok := docMap[ch.DocumentID]
+        if !ok {
+            continue
+        }
+        access := false
+        switch d.Visibility {
+        case "public":
+            access = true
+        case "private":
+            access = d.OwnerID == userID
+        case "department":
+            access = (user.Department != "" && user.Department == d.DepartmentID) || d.OwnerID == userID
+        default:
+            access = d.OwnerID == userID
+        }
+        if access {
+            allowed = append(allowed, ch)
+        }
+    }
+    return allowed, nil
 }
