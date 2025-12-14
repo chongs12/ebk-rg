@@ -1,294 +1,159 @@
 # Enterprise Knowledge Base (EKB)
 
-企业级智能知识库系统，基于微服务架构和RAG（Retrieval-Augmented Generation）技术构建。
+![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)
+![Go Version](https://img.shields.io/badge/go-1.24.1-cyan.svg)
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)
 
-## 🚀 核心特性
+## 1. 项目概述
 
-- **微服务架构**: 采用Go语言和现代云原生技术栈
-- **RAG智能问答**: 基于向量检索和LLM的自然语言问答
-- **多文档支持**: 支持PDF、Word、TXT等多种文档格式
-- **权限控制**: 细粒度的文档访问权限管理
-- **向量检索**: 基于MySQL 8.0+向量函数的高效相似度搜索
-- **JWT认证**: 无状态用户认证和授权
-- **分布式追踪**: 完整的链路追踪和监控
+**Enterprise Knowledge Base (EKB)** 是一个基于微服务架构的企业级知识库系统，旨在为企业提供高效、安全的文档管理与智能问答能力。通过集成大语言模型（LLM）与向量检索技术（RAG），实现对海量非结构化文档的深度理解与精准检索。
 
-## 🏗️ 系统架构
+### 核心功能
 
-### 微服务组件
+*   **智能问答 (RAG)**: 基于检索增强生成技术，提供准确的文档问答能力，支持上下文对话。
+*   **权限控制 (RBAC)**: 细粒度的角色与部门级访问控制，确保“财务部文档仅财务可见”。
+*   **高效向量化**: 异步处理文档上传与向量化，支持长文本语义切分与 Embedding 生成。
+*   **微服务架构**: 认证、文档、向量、查询、网关五大服务独立部署，高内聚低耦合。
+*   **全链路监控**: 集成 Prometheus、Grafana 与 Jaeger，实现指标监控与分布式链路追踪。
 
-1. **Auth Service** (端口: 8081) - 用户认证和授权
-2. **Document Service** (端口: 8082) - 文档上传和处理
-3. **Vector Service** (端口: 8083) - 文本向量化和存储
-4. **Query Service** (端口: 8084) - RAG查询和智能问答
-5. **Gateway Service** (端口: 8080) - API网关和路由
+### 系统架构
+
+```mermaid
+graph TD
+    User[用户] --> Gateway[API 网关]
+    Gateway --> Auth[认证服务]
+    Gateway --> Document[文档服务]
+    Gateway --> Query[查询服务]
+    
+    Document -->|上传消息| MQ[RabbitMQ]
+    MQ --> Vector[向量服务]
+    
+    Vector -->|Embedding| Ark[火山引擎 Ark]
+    Vector -->|向量存储| Milvus[Milvus 向量库]
+    Vector -->|元数据| DB[(MySQL)]
+    
+    Query -->|语义检索| Vector
+    Query -->|生成回答| Ark
+    Query -->|权限过滤| DB
+    
+    Auth --> DB
+    Auth --> Redis[(Redis 缓存)]
+```
 
 ### 技术栈
 
-- **后端**: Go 1.21+, Gin框架
-- **AI框架**: Eino (字节跳动开源Go AI框架)
-- **数据库**: MySQL 8.0+ (支持向量函数)
-- **缓存**: Redis
-- **认证**: JWT
-- **部署**: Docker + Kubernetes
-- **监控**: Jaeger, Prometheus, Grafana
+*   **后端语言**: Go 1.24+ (Gin, GORM)
+*   **向量数据库**: Milvus
+*   **大模型/Embedding**: Volcengine Ark (豆包模型)
+*   **消息队列**: RabbitMQ
+*   **数据库**: MySQL 8.0
+*   **缓存**: Redis
+*   **监控**: Prometheus, Grafana, Jaeger, OpenTelemetry
+*   **部署**: Docker Compose, Kubernetes (Minikube)
 
-## 🛠️ 快速开始
+---
 
-### 环境要求
+## 2. 快速开始指南
 
-- Go 1.21+
-- MySQL 8.0+
-- Redis 6.0+
-- Docker (可选)
+### 前置要求
 
-### 1. 克隆项目
+*   Go 1.24+
+*   Docker & Docker Compose
+*   Minikube (可选，用于 K8s 部署)
+*   MySQL, Redis, Milvus (可通过 Docker 启动)
 
-```bash
-git clone https://github.com/your-org/enterprise-knowledge-base.git
-cd enterprise-knowledge-base
-```
+### 安装步骤
 
-### 2. 配置环境变量
+1.  **克隆仓库**
+    ```bash
+    git clone https://github.com/chongs12/enterprise-knowledge-base.git
+    cd enterprise-knowledge-base
+    ```
 
-```bash
-cp .env.example .env
-# 编辑 .env 文件，配置数据库和API密钥
-```
+2.  **配置环境变量**
+    复制 `.env.example` 为 `.env` 并填入必要的 API Key：
+    ```bash
+    cp .env.example .env
+    ```
+    *   `ARK_API_KEY`: 火山引擎 API Key
+    *   `DB_PASSWORD`: 数据库密码
+    *   `MILVUS_ADDR`: Milvus 地址 (默认 `localhost:19530`)
 
-### 3. 安装依赖
+3.  **启动基础设施**
+    使用 Docker Compose 启动 MySQL, Redis, Milvus, RabbitMQ 等基础服务：
+    ```bash
+    docker-compose up -d mysql redis milvus rabbitmq jaeger
+    ```
 
-```bash
-go mod download
-```
+4.  **运行服务**
+    *   **方式 A: Docker Compose (推荐)**
+        ```bash
+        docker-compose up -d --build
+        ```
+    *   **方式 B: Kubernetes (Minikube)**
+        请参考 [Kubernetes 操作指南](docs/k8s-operation-guide.md)。
 
-### 4. 数据库初始化
+5.  **验证安装**
+    访问 Grafana 面板查看系统状态：`http://localhost:3000` (默认账号 admin/admin)
 
-```bash
-# 运行数据库迁移
-mysql -u root -p < migrations/001_create_users_table.sql
-mysql -u root -p < migrations/002_create_documents_tables.sql
-mysql -u root -p < migrations/003_create_queries_tables.sql
-```
+---
 
-### 5. 启动服务
+## 3. 开发指南
 
-#### 启动认证服务
-```bash
-cd cmd/auth
-go run main.go
-```
-
-#### 启动文档服务
-```bash
-cd cmd/document
-go run main.go
-```
-
-#### 启动向量服务
-```bash
-cd cmd/vector
-go run main.go
-```
-
-#### 启动查询服务
-```bash
-cd cmd/query
-go run main.go
-```
-
-#### 启动网关服务
-```bash
-cd cmd/gateway
-go run main.go
-```
-
-## 📖 API文档
-
-### 认证API
-
-#### 用户注册
-```http
-POST /api/v1/auth/register
-Content-Type: application/json
-
-{
-  "username": "john_doe",
-  "email": "john@example.com",
-  "password": "securepassword123",
-  "first_name": "John",
-  "last_name": "Doe"
-}
-```
-
-#### 用户登录
-```http
-POST /api/v1/auth/login
-Content-Type: application/json
-
-{
-  "username": "john_doe",
-  "password": "securepassword123"
-}
-```
-
-#### 刷新令牌
-```http
-POST /api/v1/auth/refresh
-Content-Type: application/json
-
-{
-  "refresh_token": "your-refresh-token"
-}
-```
-
-### 文档API
-
-#### 上传文档
-```http
-POST /api/v1/documents
-Authorization: Bearer your-jwt-token
-Content-Type: multipart/form-data
-
-file: @document.pdf
-title: "Company Policy Manual"
-description: "Employee handbook for 2024"
-is_public: false
-```
-
-#### 查询文档
-```http
-POST /api/v1/query
-Authorization: Bearer your-jwt-token
-Content-Type: application/json
-
-{
-  "query": "What is the company vacation policy?",
-  "max_results": 3
-}
-```
-
-## 🔧 开发指南
-
-### 项目结构
+### 目录结构
 
 ```
 enterprise-knowledge-base/
-├── cmd/                    # 服务入口
-│   ├── auth/              # 认证服务
-│   ├── document/          # 文档服务
-│   ├── vector/            # 向量服务
-│   ├── query/             # 查询服务
-│   └── gateway/           # 网关服务
-├── internal/              # 内部包
-│   ├── auth/              # 认证逻辑
-│   ├── document/          # 文档处理
-│   ├── vector/            # 向量化处理
-│   ├── query/             # 查询处理
-│   └── common/            # 公共模型
-├── pkg/                   # 公共包
-│   ├── config/            # 配置管理
-│   ├── database/          # 数据库连接
-│   ├── logger/            # 日志系统
-│   ├── middleware/        # 中间件
-│   └── utils/             # 工具函数
-├── api/                   # API定义
-│   ├── proto/             # gRPC协议
-│   └── rest/              # REST API
-├── migrations/            # 数据库迁移
-├── deployments/           # 部署配置
-│   ├── docker/            # Docker配置
-│   └── kubernetes/        # K8s配置
-└── tests/                 # 测试文件
+├── cmd/                # 各微服务入口 (auth, document, vector, query, gateway)
+├── internal/           # 核心业务逻辑
+│   ├── auth/           # 认证模块
+│   ├── document/       # 文档管理模块
+│   ├── vector/         # 向量化与检索模块
+│   ├── rag_query/      # RAG 问答模块
+│   └── common/         # 公共模型与工具
+├── pkg/                # 通用库 (database, logger, middleware)
+├── k8s/                # Kubernetes 部署配置
+├── docs/               # 项目文档
+└── docker-compose.yml  # 本地编排文件
 ```
 
 ### 代码规范
 
-- 使用Go 1.21+的现代特性
-- 遵循Clean Architecture原则
-- 实现完整的错误处理
-- 添加适当的日志记录
-- 编写单元测试和集成测试
+*   遵循 Go 官方 Code Review Comments。
+*   使用 `gofmt` 格式化代码。
+*   所有服务需集成 OpenTelemetry Tracing。
+*   关键业务逻辑需编写单元测试。
 
-## 🧪 测试
+### 测试方法
 
 ```bash
-# 运行所有测试
+# 运行所有单元测试
 go test ./...
 
-# 运行指定服务测试
-go test ./internal/auth/...
-
-# 生成测试覆盖率报告
-go test -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out
+# 运行特定模块测试
+go test ./internal/vector/...
 ```
 
-## 📊 监控和日志
+---
 
-### 分布式追踪
-- Jaeger UI: http://localhost:16686
-- 服务名称: enterprise-knowledge-base
+## 4. 贡献指南
 
-### 性能监控
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000
+我们欢迎任何形式的贡献！
 
-### 日志查看
-```bash
-# 查看服务日志
-docker logs auth-service
-docker logs document-service
-docker logs vector-service
-docker logs query-service
-```
+### 问题反馈
+如果您发现了 Bug 或有新功能建议，请通过 GitHub Issues 提交，并包含复现步骤和环境信息。
 
-## 🚀 部署
+### PR 提交规范
+1.  Fork 本仓库并创建特性分支 (`git checkout -b feature/AmazingFeature`).
+2.  提交代码 (`git commit -m 'Add some AmazingFeature'`).
+3.  推送到分支 (`git push origin feature/AmazingFeature`).
+4.  提交 Pull Request。
 
-### Docker部署
+### 版本管理
+本项目遵循 [Semantic Versioning](https://semver.org/) 版本管理策略。
 
-```bash
-# 构建所有服务镜像
-docker-compose build
+---
 
-# 启动所有服务
-docker-compose up -d
+## 许可证
 
-# 查看服务状态
-docker-compose ps
-```
-
-### Kubernetes部署
-
-```bash
-# 应用Kubernetes配置
-kubectl apply -f deployments/kubernetes/
-
-# 查看服务状态
-kubectl get pods
-kubectl get services
-```
-
-## 🤝 贡献
-
-1. Fork项目
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add some amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 创建Pull Request
-
-## 📄 许可证
-
-本项目采用MIT许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
-## 🆘 支持
-
-如有问题或建议，请提交Issue或联系我们。
-
-## 🏆 技术亮点
-
-- **高性能**: Go语言的并发特性，支持高并发处理
-- **可扩展**: 微服务架构，支持水平扩展
-- **高可用**: 服务发现和负载均衡
-- **安全性**: JWT认证，RBAC权限控制
-- **可观测性**: 完整的监控、日志和追踪体系
-- **现代化**: 使用最新的Go语言特性和云原生技术
+本项目采用 Apache 2.0 许可证 - 详见 [LICENSE](LICENSE) 文件。

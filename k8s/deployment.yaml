@@ -1,0 +1,220 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ekb-rabbitmq
+  namespace: ekb
+  labels:
+    app: rabbitmq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3-management
+          ports:
+            - containerPort: 5672
+            - containerPort: 15672
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: "guest"
+            - name: RABBITMQ_DEFAULT_PASS
+              value: "guest"
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+      volumes:
+        - name: rabbitmq-data
+          persistentVolumeClaim:
+            claimName: rabbitmq-data-pvc
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ekb-auth
+  namespace: ekb
+  labels:
+    app: ekb-auth
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ekb-auth
+  template:
+    metadata:
+      labels:
+        app: ekb-auth
+    spec:
+      containers:
+        - name: ekb-auth
+          image: ekb/auth:latest
+          imagePullPolicy: Never # Use local image in Minikube
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: ekb-config
+            - secretRef:
+                name: ekb-secret
+          env:
+            - name: EKB_AUTH_PORT
+              value: "8081"
+            - name: JWT_ISSUER
+              value: "ekb-local"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ekb-document
+  namespace: ekb
+  labels:
+    app: ekb-document
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ekb-document
+  template:
+    metadata:
+      labels:
+        app: ekb-document
+    spec:
+      containers:
+        - name: ekb-document
+          image: ekb/document:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: ekb-config
+            - secretRef:
+                name: ekb-secret
+          env:
+            - name: EKB_DOCUMENT_PORT
+              value: "8082"
+            - name: JWT_ISSUER
+              value: "ekb-local"
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: ekb-uploads-pvc
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ekb-vector
+  namespace: ekb
+  labels:
+    app: ekb-vector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ekb-vector
+  template:
+    metadata:
+      labels:
+        app: ekb-vector
+    spec:
+      containers:
+        - name: ekb-vector
+          image: ekb/vector:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8083
+            - containerPort: 50053
+          envFrom:
+            - configMapRef:
+                name: ekb-config
+            - secretRef:
+                name: ekb-secret
+          env:
+            - name: EKB_VECTOR_PORT
+              value: "8083"
+            - name: JWT_ISSUER
+              value: "ekb-local"
+            - name: EKB_VECTOR_GRPC_PORT
+              value: "50053"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ekb-query
+  namespace: ekb
+  labels:
+    app: ekb-query
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ekb-query
+  template:
+    metadata:
+      labels:
+        app: ekb-query
+    spec:
+      containers:
+        - name: ekb-query
+          image: ekb/query:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8084
+          envFrom:
+            - configMapRef:
+                name: ekb-config
+            - secretRef:
+                name: ekb-secret
+          env:
+            - name: EKB_QUERY_PORT
+              value: "8084"
+            - name: JWT_ISSUER
+              value: "ekb-local"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ekb-gateway
+  namespace: ekb
+  labels:
+    app: ekb-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ekb-gateway
+  template:
+    metadata:
+      labels:
+        app: ekb-gateway
+    spec:
+      containers:
+        - name: ekb-gateway
+          image: ekb/gateway:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: ekb-config
+            - secretRef:
+                name: ekb-secret
+          env:
+            - name: EKB_GATEWAY_PORT
+              value: "8080"
+            - name: JWT_ISSUER
+              value: "ekb-local"

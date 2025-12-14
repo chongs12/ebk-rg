@@ -25,13 +25,66 @@ func NewClient(url, queueName string) (*Client, error) {
 		return nil, fmt.Errorf("failed to open a channel: %w", err)
 	}
 
+	// 1. 声明死信交换机 (DLX)
+	dlxName := queueName + ".dlx"
+	err = ch.ExchangeDeclare(
+		dlxName, // name
+		"direct", // kind
+		true,    // durable
+		false,   // auto-delete
+		false,   // internal
+		false,   // no-wait
+		nil,     // arguments
+	)
+	if err != nil {
+		ch.Close()
+		conn.Close()
+		return nil, fmt.Errorf("failed to declare dlx: %w", err)
+	}
+
+	// 2. 声明死信队列 (DLQ)
+	dlqName := queueName + ".dlq"
+	_, err = ch.QueueDeclare(
+		dlqName, // name
+		true,    // durable
+		false,   // delete when unused
+		false,   // exclusive
+		false,   // no-wait
+		nil,     // arguments
+	)
+	if err != nil {
+		ch.Close()
+		conn.Close()
+		return nil, fmt.Errorf("failed to declare dlq: %w", err)
+	}
+
+	// 3. 绑定 DLQ 到 DLX
+	err = ch.QueueBind(
+		dlqName, // queue name
+		queueName, // routing key (使用原队列名作为 key)
+		dlxName, // exchange
+		false,
+		nil,
+	)
+	if err != nil {
+		ch.Close()
+		conn.Close()
+		return nil, fmt.Errorf("failed to bind dlq: %w", err)
+	}
+
+	// 4. 声明主队列，配置死信参数
+	args := amqp.Table{
+		"x-dead-letter-exchange":    dlxName,
+		"x-dead-letter-routing-key": queueName,
+	}
+
 	_, err = ch.QueueDeclare(
 		queueName, // name
 		true,      // durable
 		false,     // delete when unused
 		false,     // exclusive
 		false,     // no-wait
-		nil,       // arguments
+		args,      // arguments
 	)
 	if err != nil {
 		ch.Close()

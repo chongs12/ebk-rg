@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ekb
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ekb-config
+  namespace: ekb
+data:
+  SERVER_MODE: "production"
+  # Database & Infrastructure (Pointing to host machine via Minikube host DNS)
+  # If running DB inside K8s, change these to Service names
+  DB_HOST: "host.minikube.internal" 
+  DB_PORT: "3308"
+  DB_NAME: "auth_db"
+  REDIS_HOST: "host.minikube.internal"
+  REDIS_PORT: "6383"
+  REDIS_DB: "0"
+  MILVUS_ADDR: "host.minikube.internal:19530"
+  
+  # Milvus Config
+  MILVUS_COLLECTION: "eino_collection"
+  MILVUS_VECTOR_FIELD: "vector"
+  MILVUS_VECTOR_DIM: "4096"
+  MILVUS_VECTOR_TYPE: "float"
+  
+  # AI/LLM Config
+  ARK_MODEL: "doubao-embedding-large-text-240915"
+  ARK_BASE_URL: "https://ark.cn-beijing.volces.com/api/v3"
+  ARK_REGION: "cn-beijing"
+  RAG_MODEL: "doubao-seed-1-6-251015"
+  
+  # Service Discovery (Internal K8s DNS)
+  GW_ENTRY_BASE_URL: "http://ekb-gateway:8080"
+  GW_AUTH_BASE_URL: "http://ekb-auth:8081"
+  GW_DOCUMENT_BASE_URL: "http://ekb-document:8082"
+  GW_VECTOR_BASE_URL: "http://ekb-vector:8083"
+  GW_QUERY_BASE_URL: "http://ekb-query:8084"
+  VECTOR_GRPC_ADDR: "ekb-vector:50053"
+  
+  # Observability
+  JAEGER_ENDPOINT: "ekb-jaeger:4317"
+  
+  # Message Queue
+  RABBITMQ_URL: "amqp://guest:guest@ekb-rabbitmq:5672/"
+  RABBITMQ_QUEUE: "vector_processing_queue"
+  
+  # Storage
+  UPLOAD_PATH: "/app/uploads"
