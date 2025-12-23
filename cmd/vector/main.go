@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	"net"
@@ -118,7 +119,7 @@ func main() {
 	vectorService := vector.NewVectorService(db, emb, mstore, rdb)
 	vectorHandler := vector.NewHandler(vectorService)
 
-	// Start RabbitMQ Consumer
+	// Start RabbitMQ Consumer (Master-Worker Pattern)
 	go func() {
 		mqClient, err := rabbitmq.NewClient(cfg.RabbitMQ.URL, cfg.RabbitMQ.Queue)
 		if err != nil {
@@ -127,37 +128,61 @@ func main() {
 		}
 		defer mqClient.Close()
 
-		msgs, err := mqClient.Consume()
+		// 1. 设置 Prefetch Count = 50，与 Worker 数量一致
+		// 保证每个 Worker 手头只有少量积压任务，实现负载均衡与背压
+		const numWorkers = 50
+		msgs, err := mqClient.Consume(numWorkers)
 		if err != nil {
 			logger.Error(ctx, "Failed to start consumer", "error", err.Error())
 			return
 		}
 
-		logger.Info(ctx, "Started RabbitMQ consumer")
+		// 2. 创建任务通道 (Job Queue)
+		// 带缓冲的 Channel，作为 Master 和 Worker 之间的缓冲区
+		jobQueue := make(chan amqp.Delivery, numWorkers)
 
+		// 3. 启动 Worker Pool
+		for i := 0; i < numWorkers; i++ {
+			go func(workerID int) {
+				logger.Info(ctx, "Worker started", "worker_id", workerID)
+				for d := range jobQueue {
+					var payload struct {
+						DocumentID string `json:"document_id"`
+						Content    string `json:"content"`
+						ChunkSize  int    `json:"chunk_size"`
+					}
+					// 解析消息体
+					if err := json.Unmarshal(d.Body, &payload); err != nil {
+						logger.Error(ctx, "Failed to unmarshal message", "error", err.Error(), "worker_id", workerID)
+						d.Nack(false, false) // 格式错误，直接丢弃或进入死信
+						continue
+					}
+
+					logger.Info(ctx, "Worker processing document", "worker_id", workerID, "document_id", payload.DocumentID)
+
+					// 设置处理超时，防止单个任务卡死 Worker
+					pCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+
+					// 执行核心业务：向量化 + 入库
+					if err := vectorService.ProcessDocument(pCtx, payload.DocumentID, payload.Content, payload.ChunkSize); err != nil {
+						logger.Error(ctx, "Failed to process document", "error", err.Error(), "document_id", payload.DocumentID, "worker_id", workerID)
+						// 处理失败，Nack 并 Requeue (true)，让 RabbitMQ 重新投递（可能被其他 Worker 抢到）
+						// 注意：实际生产中应限制重试次数，避免死循环
+						d.Nack(false, true)
+					} else {
+						logger.Info(ctx, "Successfully processed document", "document_id", payload.DocumentID, "worker_id", workerID)
+						d.Ack(false)
+					}
+					cancel()
+				}
+			}(i)
+		}
+
+		logger.Info(ctx, "Started RabbitMQ consumer with worker pool", "workers", numWorkers)
+
+		// 4. Master Loop: 负责分发任务
 		for d := range msgs {
-			var payload struct {
-				DocumentID string `json:"document_id"`
-				Content    string `json:"content"`
-				ChunkSize  int    `json:"chunk_size"`
-			}
-			if err := json.Unmarshal(d.Body, &payload); err != nil {
-				logger.Error(ctx, "Failed to unmarshal message", "error", err.Error())
-				d.Nack(false, false)
-				continue
-			}
-
-			logger.Info(ctx, "Processing document from MQ", "document_id", payload.DocumentID)
-			pCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			if err := vectorService.ProcessDocument(pCtx, payload.DocumentID, payload.Content, payload.ChunkSize); err != nil {
-				logger.Error(ctx, "Failed to process document", "error", err.Error(), "document_id", payload.DocumentID)
-				cancel()
-				d.Nack(false, false) // Requeue or dead-letter
-			} else {
-				logger.Info(ctx, "Successfully processed document", "document_id", payload.DocumentID)
-				d.Ack(false)
-				cancel()
-			}
+			jobQueue <- d
 		}
 	}()
 

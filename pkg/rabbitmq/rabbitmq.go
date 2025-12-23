@@ -111,7 +111,18 @@ func (c *Client) Publish(ctx context.Context, body []byte) error {
 		})
 }
 
-func (c *Client) Consume() (<-chan amqp.Delivery, error) {
+func (c *Client) Consume(prefetchCount int) (<-chan amqp.Delivery, error) {
+	// 设置 QoS (Quality of Service)
+	// prefetchCount: 限制服务器一次发送给消费者的未确认消息数量
+	// global: false 表示该限制应用于每个 Channel，而不是连接
+	if err := c.ch.Qos(
+		prefetchCount, // prefetch count
+		0,             // prefetch size
+		false,         // global
+	); err != nil {
+		return nil, fmt.Errorf("failed to set qos: %w", err)
+	}
+
 	return c.ch.Consume(
 		c.queue, // queue
 		"",      // consumer
